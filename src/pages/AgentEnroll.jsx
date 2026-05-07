@@ -119,7 +119,7 @@ export default function AgentEnroll() {
                       'Payouts to your assigned LifeSavers are processed every Sunday',
                     ].map((step, i) => (
                       <div key={i} className="flex items-start gap-3">
-                        <span className="w-6 h-6 bg-primary/20 border border-primary/30 rounded-full text-xs text-primary flex items-center justify-center flex-shrink-0 mt-0.5 font-bold">{i + 1}</span>
+                        <span className="w-6 h-6 bg-primary rounded-full text-xs text-white flex items-center justify-center flex-shrink-0 mt-0.5 font-bold">{i + 1}</span>
                         <span className="text-gray-300 text-sm leading-relaxed">{step}</span>
                       </div>
                     ))}

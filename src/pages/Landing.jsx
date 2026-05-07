@@ -39,7 +39,7 @@ export default function Landing() {
         <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(ellipse at 60% 40%, rgba(204,0,0,0.12) 0%, transparent 60%)' }} />
 
         <div className="relative z-10 max-w-4xl mx-auto text-center">
-          <span className="inline-block bg-primary/20 border border-primary/30 text-primary text-xs font-semibold px-3 py-1 rounded-full mb-6 tracking-widest uppercase">
+          <span className="inline-block bg-primary text-white text-xs font-semibold px-3 py-1 rounded-full mb-6 tracking-widest uppercase">
             Referral Network Platform
           </span>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6">
