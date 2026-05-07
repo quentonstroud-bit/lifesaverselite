@@ -97,13 +97,13 @@ export default function Apply() {
           {/* Header badges */}
           <div className="flex flex-wrap gap-2 justify-center mb-8">
             {[
-              { icon: MapPin, text: 'Remote' },
-              { icon: Clock, text: 'Flexible Hours' },
-              { icon: Zap, text: 'Performance-Based' },
-              { icon: DollarSign, text: 'Weekly Payouts' },
-            ].map(({ icon: Icon, text }) => (
+              { icon: MapPin, text: 'Remote', color: 'text-primary' },
+              { icon: Clock, text: 'Flexible Hours', color: 'text-primary' },
+              { icon: Zap, text: 'Performance-Based', color: 'text-primary' },
+              { icon: DollarSign, text: 'Weekly Payouts', color: 'text-success' },
+            ].map(({ icon: Icon, text, color }) => (
               <span key={text} className="flex items-center gap-1.5 bg-surface border border-gray-700 text-gray-300 text-xs font-medium px-3 py-1.5 rounded-full">
-                <Icon size={12} className="text-primary" /> {text}
+                <Icon size={12} className={color} /> {text}
               </span>
             ))}
           </div>
@@ -238,7 +238,7 @@ export default function Apply() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-primary hover:bg-red-700 disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-colors text-base"
+              className="w-full bg-success hover:bg-green-400 disabled:opacity-60 text-black font-bold py-4 rounded-xl transition-colors text-base"
             >
               {loading ? 'Submitting...' : 'Submit Application'}
             </button>

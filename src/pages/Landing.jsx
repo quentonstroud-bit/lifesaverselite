@@ -43,8 +43,8 @@ export default function Landing() {
             Referral Network Platform
           </span>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6">
-            Turn Your Connections<br />
-            <span className="text-primary">into Cash.</span>
+            Turn Your <span className="text-primary">Connections</span><br />
+            <span className="text-white">into </span><span className="text-success">Cash.</span>
           </h1>
           <p className="text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto mb-10">
             You know the right people. Now get paid to tell them about us.
