@@ -17,6 +17,7 @@ export default function Footer() {
         </p>
 
         <div className="flex items-center gap-6">
+          <Link to="/agents/enroll" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Agents & Brokers</Link>
           <Link to="/privacy" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Privacy Policy</Link>
           <Link to="/terms" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Terms</Link>
           <a href="mailto:qcandoit@gmail.com" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Contact</a>

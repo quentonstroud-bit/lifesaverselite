@@ -27,6 +27,7 @@ export default function Nav() {
           <div className="hidden md:flex items-center gap-8">
             <a href="#how-it-works" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">How It Works</a>
             <a href="#earn" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">Earn</a>
+            <Link to="/agents/enroll" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">Agents & Brokers</Link>
             <Link to="/apply" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">Join</Link>
             <Link to="/login" className="text-gray-300 hover:text-white transition-colors text-sm font-medium">Login</Link>
             <Link to="/apply" className="bg-primary hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
@@ -46,6 +47,7 @@ export default function Nav() {
         <div className="md:hidden bg-nav border-t border-gray-800 px-4 py-4 flex flex-col gap-4">
           <a href="#how-it-works" onClick={() => setOpen(false)} className="text-gray-300 text-sm font-medium">How It Works</a>
           <a href="#earn" onClick={() => setOpen(false)} className="text-gray-300 text-sm font-medium">Earn</a>
+          <Link to="/agents/enroll" onClick={() => setOpen(false)} className="text-gray-300 text-sm font-medium">Agents & Brokers</Link>
           <Link to="/apply" onClick={() => setOpen(false)} className="text-gray-300 text-sm font-medium">Join</Link>
           <Link to="/login" onClick={() => setOpen(false)} className="text-gray-300 text-sm font-medium">Login</Link>
           <Link to="/apply" onClick={() => setOpen(false)} className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold text-center">Apply Now</Link>
