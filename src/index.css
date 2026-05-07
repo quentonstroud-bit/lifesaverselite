@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #080d17;
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1321;
+}
+::-webkit-scrollbar-thumb {
+  background: #53080E;
+  border-radius: 3px;
+}
+
+/* Swipe card transitions */
+.swipe-card {
+  transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.15s ease;
+  touch-action: pan-y;
+}
+
+/* Star rating */
+.star-filled { color: #f59e0b; }
+.star-empty  { color: #374151; }
