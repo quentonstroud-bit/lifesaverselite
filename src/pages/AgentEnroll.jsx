@@ -212,27 +212,6 @@ export default function AgentEnroll() {
                 </div>
               </div>
 
-              {/* Document uploads */}
-              <div>
-                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Required Documents</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {[
-                    { label: 'Insurance License', required: true },
-                    { label: 'E&O Certificate', required: true },
-                    { label: 'W-9 / EIN Document', required: true },
-                    { label: 'Agency Logo', required: false },
-                  ].map(({ label, required }) => (
-                    <div key={label} className="flex flex-col gap-1">
-                      <label className="text-sm font-medium text-gray-300">{label} {required ? <span className="text-primary">*</span> : <span className="text-gray-600">(optional)</span>}</label>
-                      <div className="bg-bg border border-dashed border-gray-700 rounded-lg px-4 py-4 flex items-center gap-3 text-gray-500 text-sm cursor-pointer hover:border-gray-500 transition-colors">
-                        <Upload size={16} />
-                        <span>Upload file</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* How heard + payment */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
