@@ -1,10 +1,16 @@
 import React, { useState } from 'react'
-import { CheckCircle, ExternalLink, Upload, ChevronRight } from 'lucide-react'
+import { CheckCircle, ChevronRight, Copy, Check } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
 
 const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
-const CAL_URL = 'https://cal.com/quenton-stroud/30min'
+
+function generatePassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#'
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
 
 const LINES = ['Life', 'Health', 'Auto', 'Home', 'Annuities', 'Final Expense', 'Medicare', 'Other']
 const YEARS_OPTIONS = ['Less than 1 year', '1 to 3 years', '3 to 5 years', '5 to 10 years', '10+ years']
@@ -32,11 +38,15 @@ const INITIAL = {
 }
 
 export default function AgentEnroll() {
+  const navigate = useNavigate()
+  const { login } = useAuth()
   const [page, setPage] = useState(1)
   const [form, setForm] = useState(INITIAL)
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showContract, setShowContract] = useState(false)
+  const [generatedPassword, setGeneratedPassword] = useState('')
+  const [copied, setCopied] = useState(null)
 
   function toggleLine(line) {
     setForm(p => ({
@@ -45,12 +55,20 @@ export default function AgentEnroll() {
     }))
   }
 
+  function copyToClipboard(text, field) {
+    navigator.clipboard.writeText(text)
+    setCopied(field)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.agreed) return
     setLoading(true)
+    const pwd = generatePassword()
+    setGeneratedPassword(pwd)
     try {
-      const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', ') }
+      const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', '), tempPassword: pwd }
       await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } catch {
       // proceed regardless — data sent best-effort
@@ -60,19 +78,58 @@ export default function AgentEnroll() {
     }
   }
 
+  function goToDashboard() {
+    login('agent')
+    navigate('/dashboard/agent')
+  }
+
   if (submitted) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle size={32} className="text-success" />
+      <div className="min-h-screen bg-bg flex items-center justify-center px-4 py-16">
+        <div className="max-w-md w-full">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-5">
+              <CheckCircle size={32} className="text-success" />
+            </div>
+            <h1 className="text-3xl font-bold mb-2">Welcome to LifeSavers Elite</h1>
+            <p className="text-gray-400 text-sm">Your account has been created. Save your login credentials below.</p>
           </div>
-          <h1 className="text-3xl font-bold mb-3">Welcome to the Network</h1>
-          <p className="text-gray-400 mb-2">Your application has been received.</p>
-          <div className="bg-surface border border-gray-800 rounded-xl p-6 text-left mb-8">
-            <p className="text-sm font-bold mb-4">Next Steps</p>
+
+          {/* Credentials card */}
+          <div className="bg-surface border border-gray-700 rounded-2xl p-6 mb-5">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Your Login Credentials</p>
             <div className="flex flex-col gap-3">
-              {['Your application is under review (24 to 48 hours)', 'You will receive login credentials by email once approved', 'Book your onboarding call to get set up quickly'].map((s, i) => (
+              <div className="bg-bg border border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Username (Email)</p>
+                  <p className="text-sm font-mono text-white">{form.email}</p>
+                </div>
+                <button onClick={() => copyToClipboard(form.email, 'email')} className="text-gray-400 hover:text-white transition-colors ml-3">
+                  {copied === 'email' ? <Check size={15} className="text-success" /> : <Copy size={15} />}
+                </button>
+              </div>
+              <div className="bg-bg border border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Temporary Password</p>
+                  <p className="text-sm font-mono text-white">{generatedPassword}</p>
+                </div>
+                <button onClick={() => copyToClipboard(generatedPassword, 'pwd')} className="text-gray-400 hover:text-white transition-colors ml-3">
+                  {copied === 'pwd' ? <Check size={15} className="text-success" /> : <Copy size={15} />}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-warning mt-4">⚠ Please change your password after your first login. These credentials will also be sent to your email.</p>
+          </div>
+
+          {/* Next steps */}
+          <div className="bg-surface border border-gray-800 rounded-2xl p-6 mb-6">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Once Inside Your Dashboard</p>
+            <div className="flex flex-col gap-3">
+              {[
+                'Set up your payout method under Settings',
+                'Top up your lead budget to start receiving referrals',
+                'Review and accept leads from your assigned LifeSavers',
+              ].map((s, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span className="w-5 h-5 bg-primary rounded-full text-xs text-white flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
                   <span className="text-sm text-gray-300">{s}</span>
@@ -80,10 +137,11 @@ export default function AgentEnroll() {
               ))}
             </div>
           </div>
-          <a href={CAL_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-primary hover:bg-red-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors">
-            Book My Onboarding Call <ExternalLink size={16} />
-          </a>
-          <p className="text-gray-500 text-xs mt-6">Sincerely, Quenton Stroud, Executive Manager, LifeSavers Elite</p>
+
+          <button onClick={goToDashboard} className="w-full bg-success hover:bg-green-400 text-black font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base">
+            Access My Dashboard <ChevronRight size={18} />
+          </button>
+          <p className="text-gray-600 text-xs text-center mt-5">Sincerely, Quenton Stroud — Executive Manager, LifeSavers Elite</p>
         </div>
       </div>
     )

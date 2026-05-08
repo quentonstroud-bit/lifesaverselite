@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { CreditCard, Bell, LogOut, Shield, FileText } from 'lucide-react'
+import { CreditCard, Bell, LogOut, Shield, FileText, Zap, Wallet } from 'lucide-react'
 
-const BUDGET_TIERS = ['$50', '$100', '$250', '$500', '$1,000', 'Custom']
+const TOPUP_AMOUNTS = ['$25', '$50', '$100', '$250', '$500']
+const PAYOUT_METHODS = ['Direct deposit (ACH)', 'Zelle', 'PayPal', 'Venmo', 'CashApp', 'Wise', 'Other']
 
 const NOTIF_TOGGLES = [
   { key: 'newLeads', label: 'New leads' },
@@ -16,7 +17,9 @@ const NOTIF_TOGGLES = [
 export default function AgentSettings() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [budget, setBudget] = useState('$100')
+  const [topUp, setTopUp] = useState('$50')
+  const [payoutMethod, setPayoutMethod] = useState('')
+  const [payoutHandle, setPayoutHandle] = useState('')
   const [notifications, setNotifications] = useState({ newLeads: true, expiry48: true, budgetExhausted: true, weeklyInvoice: false, lifesaverPayouts: true })
 
   function toggleNotif(key) {
@@ -40,26 +43,51 @@ export default function AgentSettings() {
         </div>
       </div>
 
-      {/* Weekly budget */}
+      {/* Top Up Budget */}
       <div className="bg-surface border border-gray-800 rounded-xl p-5">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Weekly Budget</p>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {BUDGET_TIERS.map(tier => (
-            <button key={tier} onClick={() => setBudget(tier)}
-              className={`py-2.5 px-3 rounded-lg text-sm font-semibold border transition-colors ${budget === tier ? 'bg-primary border-primary text-white' : 'bg-bg border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-              {tier}
+        <div className="flex items-center gap-2 mb-1">
+          <Zap size={15} className="text-warning" />
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Top Up Lead Budget</p>
+        </div>
+        <p className="text-gray-500 text-xs mb-4">Each accepted lead costs $2.00. Top up your balance to keep receiving referrals.</p>
+        <div className="grid grid-cols-5 gap-2 mb-4">
+          {TOPUP_AMOUNTS.map(amt => (
+            <button key={amt} onClick={() => setTopUp(amt)}
+              className={`py-2.5 px-1 rounded-lg text-sm font-semibold border transition-colors ${topUp === amt ? 'bg-success border-success text-black' : 'bg-bg border-gray-700 text-gray-400 hover:border-gray-500'}`}>
+              {amt}
             </button>
           ))}
         </div>
-        <div className="bg-bg border border-gray-700 rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold">Current plan: {budget}/week</p>
-            <p className="text-gray-500 text-xs mt-0.5">Charged every Sunday via Stripe</p>
-          </div>
-          <button className="flex items-center gap-1.5 bg-primary hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors">
-            <CreditCard size={12} /> Manage
-          </button>
+        <button className="w-full flex items-center justify-center gap-2 bg-success hover:bg-green-400 text-black font-bold py-3.5 rounded-xl transition-colors">
+          <CreditCard size={16} /> Pay {topUp} via Stripe
+        </button>
+        <p className="text-xs text-gray-600 text-center mt-2">Secure payment powered by Stripe. No recurring charges.</p>
+      </div>
+
+      {/* Payout Setup */}
+      <div className="bg-surface border border-gray-800 rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Wallet size={15} className="text-primary" />
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Payout Method</p>
         </div>
+        <p className="text-gray-500 text-xs mb-4">How you receive your LifeSaver commissions each Sunday.</p>
+        <select value={payoutMethod} onChange={e => setPayoutMethod(e.target.value)}
+          className="w-full bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary mb-3">
+          <option value="">Select payout method</option>
+          {PAYOUT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        {payoutMethod && payoutMethod !== 'Direct deposit (ACH)' && (
+          <input
+            type="text"
+            placeholder={`Your ${payoutMethod} username or email`}
+            value={payoutHandle}
+            onChange={e => setPayoutHandle(e.target.value)}
+            className="w-full bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary mb-3"
+          />
+        )}
+        <button className="w-full bg-primary hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+          Save Payout Method
+        </button>
       </div>
 
       {/* Notifications */}
