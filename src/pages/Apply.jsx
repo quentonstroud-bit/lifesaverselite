@@ -1,10 +1,9 @@
 import React, { useState } from 'react'
-import { MapPin, Clock, Zap, DollarSign, CheckCircle, ExternalLink } from 'lucide-react'
+import { MapPin, Clock, Zap, DollarSign, CheckCircle } from 'lucide-react'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
 
 const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
-const CAL_URL = 'https://cal.com/quenton-stroud/30min'
 
 const POSITIONS = ['Outreach Specialist', 'Educator / Community Ambassador', 'Referral Partner', 'Open to any']
 const EMPLOYMENT_OPTIONS = ['Employed full-time', 'Employed part-time', 'Self-employed', 'Unemployed', 'Student', 'Retired']
@@ -72,17 +71,15 @@ export default function Apply() {
             <CheckCircle size={32} className="text-success" />
           </div>
           <h1 className="text-3xl font-bold mb-3">Application Received</h1>
-          <p className="text-gray-400 mb-2">Now Book Your First Interview</p>
+          <p className="text-gray-400 mb-2">Your next step is Training</p>
           <p className="text-gray-500 text-sm mb-8">
-            Booking your interview moves your application to priority review.
+            Watch the training modules to learn about LifeSavers Elite, your compensation, and how to get started. Your agent will be assigned to you shortly.
           </p>
           <a
-            href={CAL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/dashboard/lifesaver/training"
             className="inline-flex items-center gap-2 bg-primary hover:bg-red-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors text-base"
           >
-            Schedule My First Interview <ExternalLink size={16} />
+            Start Training Modules
           </a>
         </div>
       </div>
