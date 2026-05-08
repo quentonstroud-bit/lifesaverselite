@@ -23,8 +23,57 @@ var PLATFORM_FEE   = 2.00
 // ENTRY POINT
 // ──────────────────────────────────────────────
 function doGet(e) {
+  var query = e && e.parameter && e.parameter.query
+  if (query === 'dashboard_stats') return getDashboardStats()
   return ContentService
     .createTextOutput(JSON.stringify({ status: 200, message: 'LifeSavers Elite API is live.' }))
+    .setMimeType(ContentService.MimeType.JSON)
+}
+
+function getDashboardStats() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+
+  // Active LifeSavers = rows in LifeSaver_Applications
+  var lsSheet = ss.getSheetByName('LifeSaver_Applications')
+  var lsCount = Math.max(0, lsSheet.getLastRow() - 1)
+
+  // Active Agents = rows in Agent_Broker_Applications
+  var agSheet = ss.getSheetByName('Agent_Broker_Applications')
+  var agCount = Math.max(0, agSheet.getLastRow() - 1)
+
+  // Leads this week + pool count
+  var leadsSheet = ss.getSheetByName('Leads')
+  var leadsData = leadsSheet.getDataRange().getValues()
+  var now = new Date()
+  var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  var leadsThisWeek = 0
+  var inPool = 0
+  for (var i = 1; i < leadsData.length; i++) {
+    var ts = new Date(leadsData[i][1])
+    if (ts >= weekAgo) leadsThisWeek++
+    if (leadsData[i][16] === 'POOL') inPool++
+  }
+
+  // Weekly revenue = sum of LSE_FEE transactions this week
+  var txSheet = ss.getSheetByName('Transactions')
+  var txData = txSheet.getDataRange().getValues()
+  var weeklyRevenue = 0
+  for (var j = 1; j < txData.length; j++) {
+    var txTs = new Date(txData[j][0])
+    if (txTs >= weekAgo && txData[j][3] === 'LSE_FEE') {
+      weeklyRevenue += parseFloat(txData[j][4]) || 0
+    }
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      status: 200,
+      lsCount: lsCount,
+      agCount: agCount,
+      leadsThisWeek: leadsThisWeek,
+      inPool: inPool,
+      weeklyRevenue: weeklyRevenue
+    }))
     .setMimeType(ContentService.MimeType.JSON)
 }
 
