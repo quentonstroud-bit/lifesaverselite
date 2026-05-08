@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { CreditCard, Bell, LogOut, Shield, FileText, Zap, Wallet } from 'lucide-react'
+import { CreditCard, Bell, LogOut, FileText, Zap, Wallet } from 'lucide-react'
 
 const TOPUP_AMOUNTS = ['$25', '$50', '$100', '$250', '$500']
 const PAYOUT_METHODS = ['Direct deposit (ACH)', 'Zelle', 'PayPal', 'Venmo', 'CashApp', 'Wise', 'Other']
@@ -37,10 +37,6 @@ export default function AgentSettings() {
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Agent Profile</p>
         <p className="font-bold">{user?.name}</p>
         <p className="text-gray-400 text-sm">{user?.agency}</p>
-        <div className="flex items-center gap-4 mt-3">
-          <span className="flex items-center gap-1.5 text-xs text-success"><Shield size={12} /> License Active</span>
-          <span className="flex items-center gap-1.5 text-xs text-success"><Shield size={12} /> E&O Current</span>
-        </div>
       </div>
 
       {/* Top Up Budget */}
@@ -70,7 +66,7 @@ export default function AgentSettings() {
           <Wallet size={15} className="text-primary" />
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Payout Method</p>
         </div>
-        <p className="text-gray-500 text-xs mb-4">How you receive your LifeSaver commissions each Sunday.</p>
+        <p className="text-gray-500 text-xs mb-4">How you PAY your LifeSavers' commissions each Sunday by 11:59pm.</p>
         <select value={payoutMethod} onChange={e => setPayoutMethod(e.target.value)}
           className="w-full bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary mb-3">
           <option value="">Select payout method</option>
