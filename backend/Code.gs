@@ -10,18 +10,18 @@
  *   Users
  */
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // CONFIGURATION
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 var SPREADSHEET_ID = '1aQ6PZ5zoSfnHZ0XkluZXwLFWjxwPPgeNVy1zKCQU0WA'
 var ADMIN_EMAIL    = 'qcandoit@gmail.com'
 var CAL_URL        = 'https://cal.com/quenton-stroud/30min'
 var SIGN_OFF       = 'Sincerely,<br><strong>Quenton Stroud</strong><br>Executive Manager, LifeSavers Elite'
 var PLATFORM_FEE   = 2.00
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // ENTRY POINT
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function doGet(e) {
   var query = e && e.parameter && e.parameter.query
   if (query === 'dashboard_stats')    return getDashboardStats()
@@ -40,9 +40,9 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // VALIDATE LOGIN
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function validateLogin(params) {
   var email = (params.email || '').toLowerCase().trim()
   if (!email) return respond(400, 'Email required')
@@ -81,7 +81,7 @@ function validateLogin(params) {
     }
   }
 
-  // Check LifeSaver_Applications (col 2 = email) — pending applicants
+  // Check LifeSaver_Applications (col 2 = email) - pending applicants
   var lsSheet = ss.getSheetByName('LifeSaver_Applications')
   if (lsSheet) {
     var lsData = lsSheet.getDataRange().getValues()
@@ -101,9 +101,9 @@ function validateLogin(params) {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // LS DATA (referrals + earnings for a LifeSaver)
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getLSData(params) {
   var email = (params.email || '').toLowerCase().trim()
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
@@ -259,9 +259,9 @@ function buildLeaderboard(ss, leadsData, myLsId, myHandle) {
   return board.slice(0, 10)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // AGENT LEADS (pending leads for this agent)
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getAgentLeads(params) {
   var agentEmail = (params.email || '').toLowerCase().trim()
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
@@ -316,9 +316,9 @@ function getAgentLeads(params) {
   })).setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // AGENT LIFESAVERS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getAgentLifeSavers(params) {
   var agentEmail = (params.email || '').toLowerCase().trim()
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
@@ -363,9 +363,9 @@ function getAgentLifeSavers(params) {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // AGENT SPEND
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getAgentSpend(params) {
   var agentEmail = (params.email || '').toLowerCase().trim()
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
@@ -428,9 +428,9 @@ function getAgentSpend(params) {
   })).setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // POOL LEADS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getPoolLeads() {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -466,9 +466,9 @@ function getPoolLeads() {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
-// ADMIN — LIFESAVERS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
+// ADMIN - LIFESAVERS
+// ----------------------------------------------
 function getAdminLifeSavers() {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var lsSheet    = ss.getSheetByName('LifeSaver_Applications')
@@ -481,7 +481,7 @@ function getAdminLifeSavers() {
   var leadsData = leadsSheet ? leadsSheet.getDataRange().getValues()  : []
   var txData    = txSheet    ? txSheet.getDataRange().getValues()     : []
 
-  // Build email→userId map from Users sheet
+  // Build email->userId map from Users sheet
   var emailToUser = {}
   for (var u = 1; u < usersData.length; u++) {
     if (usersData[u][2] === 'lifesaver') {
@@ -538,9 +538,9 @@ function getAdminLifeSavers() {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
-// ADMIN — AGENTS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
+// ADMIN - AGENTS
+// ----------------------------------------------
 function getAdminAgents() {
   var ss      = SpreadsheetApp.openById(SPREADSHEET_ID)
   var agSheet = ss.getSheetByName('Agent_Broker_Applications')
@@ -578,7 +578,7 @@ function getAdminAgents() {
       }
     }
     for (var k = 1; k < leadsData.length; k++) {
-      // declined by this agent's LifeSavers — rough approximation via pool moves
+      // declined by this agent's LifeSavers - rough approximation via pool moves
       if ((leadsData[k][16] === 'DECLINED' || leadsData[k][16] === 'POOL') && leadsData[k][19] === 'Declined by assigned Agent') {
         declined++
       }
@@ -601,9 +601,9 @@ function getAdminAgents() {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
-// ADMIN — ALL LEADS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
+// ADMIN - ALL LEADS
+// ----------------------------------------------
 function getAdminLeads() {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -611,7 +611,7 @@ function getAdminLeads() {
 
   var leadsData = leadsSheet.getDataRange().getValues()
 
-  // Build lsId→agentEmail map from Users sheet
+  // Build lsId->agentEmail map from Users sheet
   var lsToAgent = {}
   var usersSheet = ss.getSheetByName('Users')
   if (usersSheet) {
@@ -623,7 +623,7 @@ function getAdminLeads() {
     }
   }
 
-  // Build agentEmail→agency map
+  // Build agentEmail->agency map
   var agentInfo = {}
   var agSheet = ss.getSheetByName('Agent_Broker_Applications')
   if (agSheet) {
@@ -657,9 +657,9 @@ function getAdminLeads() {
     .setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
-// ADMIN — REVENUE
-// ──────────────────────────────────────────────
+// ----------------------------------------------
+// ADMIN - REVENUE
+// ----------------------------------------------
 function getAdminRevenue() {
   var ss      = SpreadsheetApp.openById(SPREADSHEET_ID)
   var txSheet = ss.getSheetByName('Transactions')
@@ -674,7 +674,7 @@ function getAdminRevenue() {
   var allTime = 0, thisWeek = 0
   var byAgentMap = {}, monthMap = {}
 
-  // Build agent email→agency map
+  // Build agent email->agency map
   var agentInfo = {}
   var agSheet = ss.getSheetByName('Agent_Broker_Applications')
   if (agSheet) {
@@ -733,9 +733,9 @@ function getNextSunday() {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // ADMIN OVERVIEW STATS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function getDashboardStats() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
 
@@ -775,9 +775,9 @@ function getDashboardStats() {
   })).setMimeType(ContentService.MimeType.JSON)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // POST HANDLERS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents)
@@ -790,7 +790,7 @@ function doPost(e) {
     if (type === 'lead_accept')        return handleLeadAccept(data)
     if (type === 'lead_decline')       return handleLeadDecline(data)
     if (type === 'claim_from_pool')    return handleClaimFromPool(data)
-    if (type === 'approve_lifesaver')  return respond(200, 'Noted — add to Users sheet manually to activate')
+    if (type === 'approve_lifesaver')  return respond(200, 'Noted - add to Users sheet manually to activate')
 
     return respond(400, 'Unknown form type: ' + type)
   } catch (err) {
@@ -798,9 +798,9 @@ function doPost(e) {
   }
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // LIFESAVER APPLICATION
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleApplication(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('LifeSaver_Applications')
@@ -819,9 +819,9 @@ function handleApplication(d) {
   return respond(200, 'Application received')
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // AGENT ENROLLMENT
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleAgentEnrollment(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Agent_Broker_Applications')
@@ -839,9 +839,9 @@ function handleAgentEnrollment(d) {
   return respond(200, 'Agent enrollment received')
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // REFERRAL SUBMISSION
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleReferralSubmit(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Leads')
@@ -871,9 +871,9 @@ function handleReferralSubmit(d) {
   return respond(200, 'Referral submitted: ' + leadId)
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // LEAD RATING
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleLeadRating(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Leads')
@@ -890,9 +890,9 @@ function handleLeadRating(d) {
   return respond(200, 'Rating saved')
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // LEAD ACCEPT
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleLeadAccept(d) {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -929,9 +929,9 @@ function getLSEmailById(ss, lsId) {
   return null
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // LEAD DECLINE
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleLeadDecline(d) {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -955,9 +955,9 @@ function handleLeadDecline(d) {
   return respond(200, 'Lead declined - moved to pool')
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // CLAIM FROM POOL
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function handleClaimFromPool(d) {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -976,9 +976,9 @@ function handleClaimFromPool(d) {
   return respond(200, 'Lead claimed from pool')
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // AUTO-DECLINE TRIGGER (set as hourly time-based trigger)
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function autoDeclineExpiredLeads() {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
@@ -995,9 +995,9 @@ function autoDeclineExpiredLeads() {
   }
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // HELPERS
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function respond(code, message) {
   return ContentService
     .createTextOutput(JSON.stringify({ status: code, message: message }))
@@ -1021,9 +1021,9 @@ function getAgentEmailForLifeSaver(lifesaverId) {
   return null
 }
 
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 // EMAIL TEMPLATES
-// ──────────────────────────────────────────────
+// ----------------------------------------------
 function wrapEmail(body) {
   return '<div style="background:#080d17;color:#ffffff;font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;border-radius:12px;overflow:hidden;">'
     + '<div style="background:#C01428;padding:24px 32px;">'
@@ -1061,7 +1061,7 @@ function applicantConfirmationBody(firstName) {
 function agentAppEmailBody(d) {
   return '<h2 style="color:#C01428;">New Agent/Broker Application</h2>'
     + '<p><strong>Agency:</strong> ' + d.agency + '</p>'
-    + '<p><strong>Contact:</strong> ' + d.name + ' · ' + d.email + ' · ' + d.phone + '</p>'
+    + '<p><strong>Contact:</strong> ' + d.name + ' | ' + d.email + ' | ' + d.phone + '</p>'
     + '<p><strong>NPN:</strong> ' + d.license + ' | States: ' + d.states + '</p>'
     + '<p><strong>Years:</strong> ' + d.years + '</p>'
     + '<p><strong>Lines:</strong> ' + d.lines + '</p>'
