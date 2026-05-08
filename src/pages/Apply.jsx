@@ -48,7 +48,7 @@ export default function Apply() {
         resumeAttached: form.resumeFile ? 'Yes' : 'No',
       }
 
-      if (WEBAPP_URL !== 'PASTE_YOUR_WEBAPP_URL_HERE') {
+      if (WEBAPP_URL) {
         await fetch(WEBAPP_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -123,7 +123,7 @@ export default function Apply() {
                   { name: 'name', label: 'Full Name', type: 'text', placeholder: 'Jane Smith', required: true },
                   { name: 'email', label: 'Email Address', type: 'email', placeholder: 'jane@email.com', required: true },
                   { name: 'phone', label: 'Telephone Number', type: 'tel', placeholder: '(555) 000-0000', required: true },
-                  { name: 'facebook', label: 'Facebook Profile Link', type: 'url', placeholder: 'https://facebook.com/yourname', required: true },
+                  { name: 'facebook', label: 'Main Social Media Account (FB, IG, TikTok, etc)', type: 'text', placeholder: 'https://facebook.com/yourname or @handle', required: true },
                 ].map(({ name, label, type, placeholder, required }) => (
                   <div key={name} className="flex flex-col gap-1">
                     <label className="text-sm font-medium text-gray-300">{label} {required && <span className="text-primary">*</span>}</label>
