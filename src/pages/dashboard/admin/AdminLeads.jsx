@@ -67,7 +67,8 @@ export default function AdminLeads() {
       try {
         await fetch(WEBAPP_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({ formType: 'lead_rating', leadId: ratingModal.id, stars, override: !!override, overrideReason })
         })
         setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))

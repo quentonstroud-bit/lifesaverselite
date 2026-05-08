@@ -37,7 +37,8 @@ export default function AgentLeads() {
       try {
         await fetch(WEBAPP_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({
             formType: 'lead_accept',
             leadId: lead.id,
@@ -59,7 +60,8 @@ export default function AgentLeads() {
       try {
         await fetch(WEBAPP_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({ formType: 'lead_decline', leadId: lead.id, agentId: user.email })
         })
       } catch {}

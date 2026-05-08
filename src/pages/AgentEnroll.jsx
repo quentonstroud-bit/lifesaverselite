@@ -69,7 +69,7 @@ export default function AgentEnroll() {
     setGeneratedPassword(pwd)
     try {
       const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', '), tempPassword: pwd }
-      await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) })
     } catch {
       // proceed regardless — data sent best-effort
     } finally {

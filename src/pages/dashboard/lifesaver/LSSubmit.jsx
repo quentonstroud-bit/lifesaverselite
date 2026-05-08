@@ -60,8 +60,8 @@ export default function LSSubmit() {
     setLoading(true)
     try {
       const payload = { formType: 'referral_submit', lifesaverId: user?.id, lifesaverHandle: user?.handle, ...form }
-      if (WEBAPP_URL !== 'PASTE_YOUR_WEBAPP_URL_HERE') {
-        await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (WEBAPP_URL) {
+        await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) })
       }
       setSubmitted(true)
     } catch {
