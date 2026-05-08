@@ -1,49 +1,33 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
 
-const ALL_LEADS = [
-  { id: 1, name: 'Sandra W.', policy: 'Life Insurance', lifesaver: '@jordansmith', agent: 'Rivera Insurance', status: 'PENDING', stars: 0 },
-  { id: 2, name: 'Michael T.', policy: 'Life Insurance', lifesaver: '@jordansmith', agent: 'Rivera Insurance', status: 'ACCEPTED', stars: 4 },
-  { id: 3, name: 'Derek H.', policy: 'Final Expense', lifesaver: '@priya_connects', agent: 'Rivera Insurance', status: 'DECLINED', stars: 2 },
-  { id: 4, name: 'Amy C.', policy: 'Medicare', lifesaver: '@danielleking', agent: 'Rivera Insurance', status: 'ACCEPTED', stars: 5 },
-  { id: 5, name: 'Raymond K.', policy: 'Life Insurance', lifesaver: '@priya_connects', agent: '--', status: 'POOL', stars: 4 },
-  { id: 6, name: 'Chris P.', policy: 'Medicare', lifesaver: '@danielleking', agent: '--', status: 'POOL', stars: 5 },
-]
+const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const STATUS_COLORS = {
-  PENDING: 'bg-warning/20 text-warning',
+  PENDING:  'bg-warning/20 text-warning',
   ACCEPTED: 'bg-success/20 text-success',
   DECLINED: 'bg-red-500/20 text-red-400',
-  POOL: 'bg-indigo-500/20 text-indigo-300',
+  POOL:     'bg-indigo-500/20 text-indigo-300',
 }
 
 const FILTERS = ['All', 'Pending', 'Accepted', 'Declined', 'In Pool']
 
 const SCORE_DIMS = [
-  { key: 'health', label: 'Health Rating', options: ['9 to 10 (Excellent)', '7 to 8 (Good)', '5 to 6 (Average)', '3 to 4 (Below avg)', '1 to 2 (Poor)'] },
-  { key: 'beneficiaries', label: 'Beneficiaries Listed', options: ['3 or more', '2', '1', 'None'] },
-  { key: 'smoking', label: 'Smoking Status', options: ['Non-Smoker', 'Former Smoker', 'Current Smoker'] },
-  { key: 'timeline', label: 'Purchase Timeline', options: ['1 to 3 months', '3 to 6 months', '6 to 12 months', 'Just exploring'] },
-  { key: 'policy', label: 'Policy Selected', options: ['Specific product named', 'General category', 'Unsure'] },
-  { key: 'engagement', label: 'Engagement Level', options: ['Ready for a call', 'Interested', 'Passive', 'Unresponsive'] },
+  { key: 'health',       label: 'Health Rating',       options: ['9–10 (Excellent)', '7–8 (Good)', '5–6 (Average)', '3–4 (Below avg)', '1–2 (Poor)'] },
+  { key: 'beneficiaries',label: 'Beneficiaries Listed',options: ['3 or more', '2', '1', 'None'] },
+  { key: 'smoking',      label: 'Smoking Status',      options: ['Non-Smoker', 'Former Smoker', 'Current Smoker'] },
+  { key: 'timeline',     label: 'Purchase Timeline',   options: ['1–3 months', '3–6 months', '6–12 months', 'Just exploring'] },
+  { key: 'policy',       label: 'Policy Selected',     options: ['Specific product named', 'General category', 'Unsure'] },
+  { key: 'engagement',   label: 'Engagement Level',    options: ['Ready for a call', 'Interested', 'Passive', 'Unresponsive'] },
 ]
 
 const WEIGHTS = { health: 25, beneficiaries: 25, smoking: 20, timeline: 10, policy: 10, engagement: 10 }
-const SCORES = {
-  health: [100, 80, 55, 25, 0],
-  beneficiaries: [100, 75, 40, 0],
-  smoking: [100, 50, 0],
-  timeline: [100, 65, 35, 10],
-  policy: [100, 50, 0],
-  engagement: [100, 60, 20, 0],
-}
+const SCORES  = { health: [100,80,55,25,0], beneficiaries: [100,75,40,0], smoking: [100,50,0], timeline: [100,65,35,10], policy: [100,50,0], engagement: [100,60,20,0] }
 
-function calculateStars(selections) {
+function calculateStars(sel) {
   let total = 0
-  Object.entries(selections).forEach(([key, idx]) => {
-    if (idx !== null) total += (SCORES[key][idx] * WEIGHTS[key]) / 100
-  })
+  Object.entries(sel).forEach(([k, idx]) => { if (idx !== null) total += (SCORES[k][idx] * WEIGHTS[k]) / 100 })
   if (total >= 85) return 5
   if (total >= 70) return 4
   if (total >= 50) return 3
@@ -52,27 +36,54 @@ function calculateStars(selections) {
 }
 
 export default function AdminLeads() {
-  const [filter, setFilter] = useState('All')
-  const [ratingModal, setRatingModal] = useState(null)
-  const [selections, setSelections] = useState({})
-  const [override, setOverride] = useState('')
+  const [leads,        setLeads]        = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [filter,       setFilter]       = useState('All')
+  const [ratingModal,  setRatingModal]  = useState(null)
+  const [selections,   setSelections]   = useState({})
+  const [override,     setOverride]     = useState('')
   const [overrideReason, setOverrideReason] = useState('')
 
-  const filtered = ALL_LEADS.filter(l => {
-    if (filter === 'All') return true
-    if (filter === 'In Pool') return l.status === 'POOL'
-    return l.status === filter.toUpperCase()
-  })
+  useEffect(() => {
+    if (!WEBAPP_URL) { setLoading(false); return }
+    fetch(`${WEBAPP_URL}?query=admin_leads`)
+      .then(r => r.json())
+      .then(d => { setLeads(d.leads || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const filtered = filter === 'All'
+    ? leads
+    : leads.filter(l => filter === 'In Pool' ? l.status === 'POOL' : l.status === filter.toUpperCase())
 
   const computedStars = Object.keys(selections).length === SCORE_DIMS.length
-    ? calculateStars(Object.fromEntries(Object.entries(selections).map(([k, v]) => [k, v])))
+    ? calculateStars(Object.fromEntries(Object.entries(selections)))
     : null
+
+  async function saveRating() {
+    const stars  = override ? parseInt(override) : computedStars
+    if (!stars || !ratingModal) return
+    if (WEBAPP_URL) {
+      try {
+        await fetch(WEBAPP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ formType: 'lead_rating', leadId: ratingModal.id, stars, override: !!override, overrideReason })
+        })
+        setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))
+      } catch {}
+    }
+    setRatingModal(null)
+    setSelections({})
+    setOverride('')
+    setOverrideReason('')
+  }
 
   return (
     <div className="flex flex-col gap-5 pb-4">
       <div className="pt-2">
         <h1 className="text-2xl font-bold">All Leads</h1>
-        <p className="text-gray-400 text-sm mt-1">{ALL_LEADS.length} total</p>
+        <p className="text-gray-400 text-sm mt-1">{loading ? '…' : `${leads.length} total`}</p>
       </div>
 
       {/* Filter pills */}
@@ -85,30 +96,38 @@ export default function AdminLeads() {
         ))}
       </div>
 
-      {/* Lead table */}
-      <div className="flex flex-col gap-3">
-        {filtered.map(lead => (
-          <div key={lead.id} className="bg-surface border border-gray-800 rounded-xl px-5 py-4">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <p className="font-semibold text-sm">{lead.name}</p>
-                <p className="text-gray-500 text-xs">{lead.policy}</p>
+      {/* Lead list */}
+      {loading ? (
+        <p className="text-gray-500 text-sm">Loading…</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-gray-500 text-sm">No leads yet.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map(lead => (
+            <div key={lead.id} className="bg-surface border border-gray-800 rounded-xl px-5 py-4">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="font-semibold text-sm">{lead.name}</p>
+                  <p className="text-gray-500 text-xs">{lead.policy}</p>
+                  <p className="text-gray-600 text-xs mt-0.5">{lead.date}</p>
+                </div>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status] || 'bg-gray-700 text-gray-400'}`}>
+                  {lead.status}
+                </span>
               </div>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status]}`}>{lead.status}</span>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{lead.lifesaver} → {lead.agent || 'Unassigned'}</span>
+                {lead.stars > 0
+                  ? <StarRating rating={lead.stars} size={13} />
+                  : lead.status === 'PENDING' && (
+                    <button onClick={() => { setRatingModal(lead); setSelections({}) }}
+                      className="text-primary font-semibold">Rate Lead</button>
+                  )}
+              </div>
             </div>
-            <div className="flex items-center justify-between text-xs text-gray-500">
-              <span>{lead.lifesaver} to {lead.agent}</span>
-              {lead.stars > 0 ? <StarRating rating={lead.stars} size={13} /> : (
-                lead.status === 'PENDING' && (
-                  <button onClick={() => { setRatingModal(lead); setSelections({}) }} className="text-primary font-semibold">
-                    Rate Lead
-                  </button>
-                )
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* STARS rating modal */}
       {ratingModal && (
@@ -143,11 +162,10 @@ export default function AdminLeads() {
               </div>
             )}
 
-            {/* Override */}
             <div className="mb-4">
               <p className="text-xs font-semibold text-gray-400 mb-2">Manual Override (optional)</p>
               <div className="flex gap-2 mb-2">
-                {[1, 2, 3, 4, 5].map(n => (
+                {[1,2,3,4,5].map(n => (
                   <button key={n} onClick={() => setOverride(String(n))}
                     className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${override === String(n) ? 'bg-warning border-warning text-black' : 'bg-bg border-gray-700 text-gray-400'}`}>
                     {n}
@@ -160,7 +178,7 @@ export default function AdminLeads() {
               )}
             </div>
 
-            <button onClick={() => setRatingModal(null)} disabled={!computedStars && !override}
+            <button onClick={saveRating} disabled={!computedStars && !override}
               className="w-full bg-primary hover:bg-red-700 disabled:opacity-40 text-white font-bold py-3.5 rounded-xl transition-colors">
               Save Rating
             </button>

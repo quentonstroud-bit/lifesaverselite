@@ -4,14 +4,29 @@ import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const { login } = useAuth()
-  const navigate = useNavigate()
-  const [selected, setSelected] = useState('lifesaver')
+  const navigate  = useNavigate()
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
 
-  function handleLogin() {
-    login(selected)
-    if (selected === 'lifesaver') navigate('/dashboard/lifesaver')
-    else if (selected === 'agent') navigate('/dashboard/agent')
-    else navigate('/dashboard/admin')
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!email.trim() || !password) { setError('Please enter your email and password.'); return }
+    setLoading(true)
+    setError('')
+    try {
+      const result = await login(email.trim(), password)
+      if (result.success) {
+        if (result.role === 'lifesaver') navigate('/dashboard/lifesaver')
+        else if (result.role === 'agent') navigate('/dashboard/agent')
+        else navigate('/dashboard/admin')
+      } else {
+        setError(result.error || 'Login failed. Please try again.')
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -27,46 +42,47 @@ export default function Login() {
         <h1 className="text-2xl font-bold text-center mb-2">Welcome Back</h1>
         <p className="text-gray-400 text-center text-sm mb-8">Sign in to your account</p>
 
-        <div className="flex flex-col gap-3 mb-6">
-          <label className="text-gray-300 text-sm font-medium">Email Address</label>
-          <input
-            type="email"
-            placeholder="you@email.com"
-            className="bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary"
-          />
-          <label className="text-gray-300 text-sm font-medium">Password</label>
-          <input
-            type="password"
-            placeholder="Enter your password"
-            className="bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary"
-          />
-        </div>
-
-        {/* Demo role selector */}
-        <div className="bg-bg border border-gray-700 rounded-xl p-4 mb-6">
-          <p className="text-xs text-gray-500 mb-3 font-semibold uppercase tracking-wider">Demo: Select Role</p>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { key: 'lifesaver', label: 'LifeSaver' },
-              { key: 'agent', label: 'Agent' },
-              { key: 'admin', label: 'Admin' },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setSelected(key)}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
-                  selected === key ? 'bg-primary text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-gray-300 text-sm font-medium">Email Address</label>
+            <input
+              type="email"
+              placeholder="you@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+              className="bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary"
+            />
           </div>
-        </div>
 
-        <button onClick={handleLogin} className="w-full bg-primary hover:bg-red-700 text-white font-semibold py-4 rounded-xl transition-colors">
-          Sign In
-        </button>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-gray-300 text-sm font-medium">Password</label>
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              className="bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-primary hover:bg-red-700 disabled:opacity-60 text-white font-semibold py-4 rounded-xl transition-colors mt-2"
+          >
+            {loading ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
 
         <p className="text-center text-gray-500 text-sm mt-6">
           Not a member yet?{' '}

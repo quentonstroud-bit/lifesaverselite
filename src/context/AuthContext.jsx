@@ -2,34 +2,63 @@ import React, { createContext, useContext, useState } from 'react'
 
 const AuthContext = createContext(null)
 
-// Demo users for development
-const DEMO_USERS = {
-  lifesaver: { id: 'ls1', name: 'Jordan Smith', handle: '@jordansmith', role: 'lifesaver', tier: 'Star 3', icSigned: false, trainingComplete: false },
-  agent:     { id: 'ag1', name: 'Marcus Rivera', agency: 'Rivera Insurance Group', role: 'agent', icSigned: true },
-  admin:     { id: 'adm1', name: 'Quenton Stroud', role: 'admin' },
-}
+const ADMIN_EMAIL    = 'qcandoit@gmail.com'
+const ADMIN_PASSWORD = 'TopAgent5661421$'
+const WEBAPP_URL     = import.meta.env.VITE_WEBAPP_URL || ''
+
+function saveSession(u) { try { localStorage.setItem('lse_user', JSON.stringify(u)) } catch {} }
+function clearSession()  { try { localStorage.removeItem('lse_user') } catch {} }
+function loadSession()   { try { const s = localStorage.getItem('lse_user'); return s ? JSON.parse(s) : null } catch { return null } }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(() => loadSession())
 
-  function login(role) {
-    setUser(DEMO_USERS[role])
+  async function login(email, password) {
+    const em = (email || '').toLowerCase().trim()
+
+    // Admin: hardcoded credentials
+    if (em === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+      const u = { id: 'adm1', name: 'Quenton Stroud', email: ADMIN_EMAIL, role: 'admin' }
+      setUser(u); saveSession(u)
+      return { success: true, role: 'admin' }
+    }
+
+    if (!WEBAPP_URL) return { success: false, error: 'Backend not configured.' }
+
+    try {
+      const res  = await fetch(`${WEBAPP_URL}?query=validate_login&email=${encodeURIComponent(em)}`)
+      const data = await res.json()
+      if (data.status === 200 && data.role) {
+        const u = { ...data, icSigned: false, trainingComplete: false }
+        setUser(u); saveSession(u)
+        return { success: true, role: data.role }
+      }
+      return { success: false, error: 'No account found for that email.' }
+    } catch {
+      return { success: false, error: 'Connection error. Please try again.' }
+    }
+  }
+
+  // Used after enrollment — skip backend round-trip
+  function loginDirect(userData) {
+    const u = { ...userData, icSigned: false, trainingComplete: false }
+    setUser(u); saveSession(u)
   }
 
   function logout() {
-    setUser(null)
+    setUser(null); clearSession()
   }
 
   function signIcAgreement() {
-    setUser(prev => ({ ...prev, icSigned: true }))
+    setUser(prev => { const u = { ...prev, icSigned: true }; saveSession(u); return u })
   }
 
   function completeTraining() {
-    setUser(prev => ({ ...prev, trainingComplete: true }))
+    setUser(prev => { const u = { ...prev, trainingComplete: true }; saveSession(u); return u })
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, signIcAgreement, completeTraining }}>
+    <AuthContext.Provider value={{ user, login, loginDirect, logout, signIcAgreement, completeTraining }}>
       {children}
     </AuthContext.Provider>
   )

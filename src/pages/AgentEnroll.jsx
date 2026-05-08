@@ -39,7 +39,7 @@ const INITIAL = {
 
 export default function AgentEnroll() {
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { loginDirect } = useAuth()
   const [page, setPage] = useState(1)
   const [form, setForm] = useState(INITIAL)
   const [submitted, setSubmitted] = useState(false)
@@ -79,7 +79,14 @@ export default function AgentEnroll() {
   }
 
   function goToDashboard() {
-    login('agent')
+    loginDirect({
+      id: `ag-new-${Date.now()}`,
+      name: form.name,
+      agency: form.agency,
+      email: form.email,
+      phone: form.phone,
+      role: 'agent',
+    })
     navigate('/dashboard/agent')
   }
 
