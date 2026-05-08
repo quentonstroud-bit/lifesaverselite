@@ -9,11 +9,21 @@ const CAL_URL = 'https://cal.com/quenton-stroud/30min'
 const LINES = ['Life', 'Health', 'Auto', 'Home', 'Annuities', 'Final Expense', 'Medicare', 'Other']
 const YEARS_OPTIONS = ['Less than 1 year', '1 to 3 years', '3 to 5 years', '5 to 10 years', '10+ years']
 const HEAR_OPTIONS = ['Google Search', 'Social Media', 'Referral from a colleague', 'Email', 'Industry event', 'Other']
-const PAYOUT_OPTIONS = ['Direct deposit (ACH)', 'Check by mail', 'Zelle', 'PayPal', 'Venmo', 'Other']
+const PAYOUT_OPTIONS = ['Direct deposit (ACH)', 'Zelle', 'PayPal', 'Venmo', 'CashApp', 'Wise', 'Other']
+
+const US_STATES = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware',
+  'Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky',
+  'Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi',
+  'Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico',
+  'New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania',
+  'Rhode Island','South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont',
+  'Virginia','Washington','West Virginia','Wisconsin','Wyoming',
+]
 
 const INITIAL = {
   name: '', agency: '', email: '', phone: '',
-  license: '', states: '', years: '',
+  license: '', states: [], years: '',
   lines: [],
   payoutStructure: 'standard',
   hearAbout: '',
@@ -40,7 +50,7 @@ export default function AgentEnroll() {
     if (!form.agreed) return
     setLoading(true)
     try {
-      const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', ') }
+      const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', ') }
       if (WEBAPP_URL !== 'PASTE_YOUR_WEBAPP_URL_HERE') {
         await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       }
@@ -152,15 +162,29 @@ export default function AgentEnroll() {
                     { name: 'agency', label: 'Agency / Company Name', type: 'text' },
                     { name: 'email', label: 'Email Address', type: 'email' },
                     { name: 'phone', label: 'Phone Number', type: 'tel' },
-                    { name: 'license', label: 'License Number', type: 'text' },
-                    { name: 'states', label: 'State(s) Licensed', type: 'text', placeholder: 'e.g. TX, OK, KS' },
-                  ].map(({ name, label, type, placeholder }) => (
+                    { name: 'license', label: 'NPN (National Producer Number)', type: 'text' },
+                  ].map(({ name, label, type }) => (
                     <div key={name} className="flex flex-col gap-1">
                       <label className="text-sm font-medium text-gray-300">{label} <span className="text-primary">*</span></label>
-                      <input type={type} required placeholder={placeholder || ''} value={form[name]}
+                      <input type={type} required value={form[name]}
                         onChange={e => setForm(p => ({ ...p, [name]: e.target.value }))}
                         className="bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary" />
                     </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* States licensed */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-3 block">State(s) Licensed <span className="text-primary">*</span></label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {US_STATES.map(s => (
+                    <label key={s} className={`flex items-center gap-2 border rounded-lg px-3 py-2.5 cursor-pointer text-sm transition-colors ${form.states.includes(s) ? 'border-primary bg-primary/10' : 'border-gray-700 hover:border-gray-500'}`}>
+                      <input type="checkbox" checked={form.states.includes(s)}
+                        onChange={() => setForm(p => ({ ...p, states: p.states.includes(s) ? p.states.filter(x => x !== s) : [...p.states, s] }))}
+                        className="accent-red-600" />
+                      {s}
+                    </label>
                   ))}
                 </div>
               </div>
