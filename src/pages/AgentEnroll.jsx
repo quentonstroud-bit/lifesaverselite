@@ -51,14 +51,12 @@ export default function AgentEnroll() {
     setLoading(true)
     try {
       const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', ') }
-      if (WEBAPP_URL !== 'PASTE_YOUR_WEBAPP_URL_HERE') {
-        await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      }
-      setSubmitted(true)
+      await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } catch {
-      // silent for demo
+      // proceed regardless — data sent best-effort
     } finally {
       setLoading(false)
+      setSubmitted(true)
     }
   }
 
