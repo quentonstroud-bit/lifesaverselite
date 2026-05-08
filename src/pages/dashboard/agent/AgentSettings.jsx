@@ -35,8 +35,8 @@ export default function AgentSettings() {
       {/* Agent profile */}
       <div className="bg-surface border border-gray-800 rounded-xl p-5">
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Agent Profile</p>
-        <p className="font-bold">{user?.name}</p>
-        <p className="text-gray-400 text-sm">{user?.agency}</p>
+        <p className="text-2xl font-bold">{user?.name}</p>
+        <p className="text-gray-400 text-base mt-0.5">{user?.agency}</p>
       </div>
 
       {/* Top Up Budget */}
