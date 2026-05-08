@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState } from 'react'
 
 const AuthContext = createContext(null)
 
-const ADMIN_EMAIL    = 'qcandoit@gmail.com'
+const ADMIN_EMAIL    = 'reverendqs@gmail.com'
 const ADMIN_PASSWORD = 'TopAgent5661421$'
 const WEBAPP_URL     = import.meta.env.VITE_WEBAPP_URL || ''
 
@@ -18,7 +18,7 @@ export function AuthProvider({ children }) {
 
     // Admin: hardcoded credentials
     if (em === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
-      const u = { id: 'adm1', name: 'Quenton Stroud', email: ADMIN_EMAIL, role: 'admin' }
+      const u = { id: 'adm1', name: 'Quenton Stroud', email: 'reverendqs@gmail.com', role: 'admin' }
       setUser(u); saveSession(u)
       return { success: true, role: 'admin' }
     }
