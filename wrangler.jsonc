@@ -1,0 +1,46 @@
+// Cloudflare Worker config for LifeSavers Elite.
+// Setup steps: docs/CLOUDFLARE_SETUP.md
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lifesavers-elite",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+
+  // Static site (the prototype pages). Requests to /api/* run the Worker first;
+  // everything else is served straight from ./site.
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // D1 database. Create it, then paste its id below (see docs/CLOUDFLARE_SETUP.md).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lifesavers-elite-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Hourly job: releases leads nobody accepted within 48 hours back to the pool
+  // (replaces autoDeclineExpiredLeads in backend/Code.gs).
+  "triggers": { "crons": ["0 * * * *"] },
+
+  // Non-secret settings. Secrets (RESEND_API_KEY, STRIPE_WEBHOOK_SECRET,
+  // STRIPE_SECRET_KEY) are set with `wrangler secret put`, never in this file.
+  "vars": {
+    "ADMIN_EMAIL": "qcandoit@gmail.com",
+    "FROM_EMAIL": "LifeSavers Elite <info@lifesaverselite.com>",
+    "CAL_URL": "https://cal.com/quenton-stroud/30min"
+  },
+
+  // Turn this on at cutover, after lifesaverselite.com is added to Cloudflare:
+  // "routes": [
+  //   { "pattern": "lifesaverselite.com", "custom_domain": true },
+  //   { "pattern": "www.lifesaverselite.com", "custom_domain": true }
+  // ],
+
+  "observability": { "enabled": true }
+}
