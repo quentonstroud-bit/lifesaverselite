@@ -171,13 +171,16 @@ $2.00 fee and a browser-supplied payout (see "Gaps" below).
 | Rating | Lead price | LSE fee | Agent pays | Notes |
 |---|---|---|---|---|
 | 1 star | $0 | $0 | $0 | Free unlock, no Stripe charge, LifeSaver earns $0 |
-| 2-5 stars | $5 | $5 | $10 | Same price for every star from 2 up |
+| 2 stars | $5 | $5 | $10 | |
+| 3 stars | $18 | $5 | $23 | |
+| 4 stars | $24 | $5 | $29 | |
+| 5 stars | $30 | $5 | $35 | |
 
-4. **LifeSaver earns** the lead price ($5) **minus Stripe processing fees** (LifeSaver bears the Stripe fee). LSE keeps the full $5 fee.
+4. **LifeSaver earns** the lead price (per table) **minus Stripe processing fees** (LifeSaver bears the Stripe fee). LSE keeps the full $5 fee.
 5. LifeSaver commissions are **banked** in the ledger and paid out **weekly (Sunday)**.
 6. Price is computed **server-side only** from the rating. Never trust an amount from the browser.
 
-Open detail: Stripe fee is ~2.9% + $0.30 of the whole $10 charge (about $0.59), so the LifeSaver would net about $4.41 per lead. Confirm this is the intended calculation (vs. prorating the fee to the $5 lead price only).
+Open detail: Stripe charges ~2.9% + $0.30 on the whole charge (e.g. $0.59 on $10, $1.20 on $35). Confirm whether the LifeSaver bears the fee on the whole charge (nets e.g. $4.41 on a 2-star, $28.80 on a 5-star) or only on the lead price.
 
 ### 5-star rating definitions (shown to admins and LifeSavers)
 - **5 - Top quality:** ready to buy in 1-3 months, beneficiaries listed, responsive, wants a specific policy, ready for consultation/quote.
