@@ -6,7 +6,7 @@ import { startPurchase, money } from '../../../lib/purchase'
 import { apiGet } from '../../../lib/api'
 
 
-const FILTERS = ['All', 'Life Insurance', 'Health Insurance', 'Final Expense', 'Annuity', 'Medicare', '5-Star Only']
+const FILTERS = ['All', 'General life insurance', 'Final expense / burial', 'Cremation', 'Leave money / legacy', 'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', '5-Star Only']
 
 export default function AgentPool() {
   const { user }   = useAuth()

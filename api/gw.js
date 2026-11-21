@@ -23,7 +23,7 @@ const GETS = {
   admin_payout_report:{ role: 'admin',      build: (u, p) => (isIso(p.through) ? { through: p.through } : {}) },
 }
 
-const REFERRAL_FIELDS = ['leadName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes']
+const REFERRAL_FIELDS = ['firstName', 'lastName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes']
 
 // formType -> { role | null (public), build(user, body) -> fields sent to Apps Script }
 const POSTS = {

@@ -48,15 +48,39 @@ function leadTotal(stars) { return round2(leadPrice(stars) + leadFee(stars)) }
 var HEALTH_CONDITIONS = [
   'Diabetes', 'Heart disease or heart attack', 'Stroke', 'Cancer (current or past)',
   'Kidney disease or renal failure', 'High blood pressure', 'COPD, emphysema or lung disease',
-  'Liver disease or hepatitis', "Alzheimer's or dementia", 'Alcohol or drug treatment'
+  'Liver disease or hepatitis', 'HIV/AIDS', "Alzheimer's or dementia", 'Alcohol or drug treatment'
 ]
 var NONE_OF_THESE = 'None of these'
-var RELATIONSHIPS = ['Spouse', 'Child', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+var RELATIONSHIPS = ['Spouse', 'Son', 'Daughter', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+var POLICY_TYPES = ['General life insurance', 'Final expense / burial', 'Cremation', 'Leave money / legacy',
+  'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', 'Other / Not sure']
+var TIMELINES = ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks']
+// Points for the purchase timeline (max 20). The three old values are kept so leads submitted before the change still score.
+var TIMELINE_POINTS = { 'Same day coverage': 20, '1 week': 16, '2 weeks': 12, '3 weeks': 8, '4 weeks': 4,
+  '1 to 3 months': 20, '3 to 6 months': 12, '6 to 12 months': 6 }
+var US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO',
+  'MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']
+var CONDITIONS_MAX_POINTS = 7   // "None of these" = 7; each condition checked takes 1 point off, floor 0
 var MAX_BENEFICIARY_ROWS = 5
 
 // Strip characters that would break the stored text format or an email, and cap length.
 function cleanText(v, max) {
   return String(v === undefined || v === null ? '' : v).replace(/[;()\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+}
+
+// Keep a value only if it is one of the allowed options.
+function cleanChoice(v, list) {
+  v = String(v === undefined || v === null ? '' : v).trim()
+  return list.indexOf(v) !== -1 ? v : ''
+}
+function cleanState(v) {
+  v = String(v === undefined || v === null ? '' : v).toUpperCase().trim()
+  return US_STATES.indexOf(v) !== -1 ? v : ''
+}
+function firstNameOf(full) { return String(full || '').trim().split(/\s+/)[0] || '' }
+function lastInitialOf(full) {
+  var parts = String(full || '').trim().split(/\s+/)
+  return parts.length > 1 ? parts[parts.length - 1].charAt(0) : 'X'
 }
 
 function cleanConditions(arr) {
@@ -105,7 +129,7 @@ function scoreLead(d) {
   var phoneDigits = String(d.phone || '').replace(/\D/g, '')
   if (phoneDigits.length >= 10) pts += 10
   if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim())) pts += 5
-  if (String(d.city || '').trim() && String(d.state || '').trim()) pts += 5
+  if (cleanState(d.state)) pts += 5   // the state is what counts (agents are licensed by state); city is optional
 
   // Beneficiaries: 15 points = count (8) + each listed beneficiary named with a relationship (7)
   var ben = parseInt(d.beneficiaries, 10) || 0
@@ -125,8 +149,11 @@ function scoreLead(d) {
   if (health >= 7) pts += 8
   else if (health >= 4) pts += 4
 
+  // Conditions: not answered = 0. "None of these" = 7. Otherwise 7 minus 1 per condition checked, never below 0.
   var conds = d.healthConditions
-  if (conds && conds.length > 0) pts += 7
+  if (conds && conds.length > 0) {
+    pts += conds.indexOf(NONE_OF_THESE) !== -1 ? CONDITIONS_MAX_POINTS : Math.max(0, CONDITIONS_MAX_POINTS - conds.length)
+  }
 
   var smoking = String(d.smoking || '')
   if (smoking === 'Non-Smoker') pts += 5
@@ -138,9 +165,7 @@ function scoreLead(d) {
   else if (policy) pts += 3
 
   var tl = String(d.timeline || '')
-  if (tl === '1 to 3 months') pts += 20
-  else if (tl === '3 to 6 months') pts += 12
-  else if (tl === '6 to 12 months') pts += 6
+  if (Object.prototype.hasOwnProperty.call(TIMELINE_POINTS, tl)) pts += TIMELINE_POINTS[tl]
 
   var notesLen = String(d.notes || '').trim().length
   if (notesLen >= 150) pts += 10
@@ -499,8 +524,8 @@ function getAgentLeads(params) {
       var hoursLeft = Math.max(0, Math.round((expiry - now) / 3600000))
       leads.push({
         id: row[0],
-        firstName: String(row[2]).split(' ')[0],
-        lastInitial: (String(row[2]).split(' ')[1] || 'X')[0],
+        firstName: firstNameOf(row[2]),
+        lastInitial: lastInitialOf(row[2]),
         city: row[5], state: row[6],
         hoursLeft: hoursLeft,
         stars: starsForRow(row),
@@ -652,8 +677,8 @@ function getPoolLeads() {
 
     leads.push({
       id: row[0],
-      firstName: String(row[2]).split(' ')[0],
-      lastInitial: (String(row[2]).split(' ')[1] || 'X')[0],
+      firstName: firstNameOf(row[2]),
+      lastInitial: lastInitialOf(row[2]),
       city: row[5], state: row[6],
       hoursLeft: hoursLeft,
       stars: starsForRow(row),
@@ -848,7 +873,7 @@ function getAdminLeads() {
     var ts        = new Date(row[1])
     leads.push({
       id:        row[0],
-      name:      String(row[2]).split(' ')[0] + ' ' + (String(row[2]).split(' ')[1] || '')[0] + '.',
+      name:      firstNameOf(row[2]) + ' ' + lastInitialOf(row[2]) + '.',
       policy:    row[11],
       lifesaver: row[15] || lsId,
       agent:     agAgency,
@@ -1054,16 +1079,37 @@ function handleAgentEnrollment(d) {
 // ----------------------------------------------
 // REFERRAL SUBMISSION
 // ----------------------------------------------
+// Digits only (checkout validates /^LD-\d+$/). Milliseconds plus 3 random digits, re-rolled if it already exists.
+function newLeadId(sheet) {
+  var used = {}, rows = sheet.getDataRange().getValues()
+  for (var i = 1; i < rows.length; i++) used[String(rows[i][0])] = true
+  var id
+  do { id = 'LD-' + (Date.now() * 1000 + Math.floor(Math.random() * 1000)) } while (used[id])
+  return id
+}
+
 function handleReferralSubmit(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Leads')
   var ts    = new Date().toISOString()
-  var leadId = 'LD-' + Date.now()
+  var leadId = ''
   var expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  var first = cleanText(d.firstName, 40), last = cleanText(d.lastName, 40)
+  if (!first || !last) return respond(400, 'First and last name are required')
+  d.leadName = first + ' ' + last
+  d.state = cleanState(d.state)
+  d.city = cleanText(d.city, 60)
+  d.policyInterest = cleanChoice(d.policyInterest, POLICY_TYPES)
+  d.timeline = cleanChoice(d.timeline, TIMELINES)
   d.beneficiaryDetails = cleanBeneficiaries(d.beneficiaryDetails)
   d.healthConditions   = cleanConditions(d.healthConditions)
   var stars  = starsFromScore(scoreLead(d))
 
+  // Unique id, generated and saved under a lock so two simultaneous referrals can never share one.
+  var lock = LockService.getScriptLock()
+  lock.waitLock(20000)
+  try {
+  leadId = newLeadId(sheet)
   // Columns 21-23: PoolSource (unused here), BeneficiaryDetails, HealthConditions
   sheet.appendRow([
     leadId, ts, d.leadName, d.phone, d.email || '',
@@ -1073,6 +1119,9 @@ function handleReferralSubmit(d) {
     'PENDING', stars, expiry, leadFee(stars),
     '', beneficiariesToText(d.beneficiaryDetails), d.healthConditions.join('; ')
   ])
+  } finally {
+    lock.releaseLock()
+  }
 
   if (stars >= 2) awardLevelBonuses(ss, d.lifesaverId, d.lifesaverHandle)
 

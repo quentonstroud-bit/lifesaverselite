@@ -6,10 +6,18 @@ export const STAR_THRESHOLDS = [[85, 5], [70, 4], [55, 3], [45, 2]]
 export const HEALTH_CONDITIONS = [
   'Diabetes', 'Heart disease or heart attack', 'Stroke', 'Cancer (current or past)',
   'Kidney disease or renal failure', 'High blood pressure', 'COPD, emphysema or lung disease',
-  'Liver disease or hepatitis', "Alzheimer's or dementia", 'Alcohol or drug treatment',
+  'Liver disease or hepatitis', 'HIV/AIDS', "Alzheimer's or dementia", 'Alcohol or drug treatment',
 ]
 export const NONE_OF_THESE = 'None of these'
-export const RELATIONSHIPS = ['Spouse', 'Child', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+export const RELATIONSHIPS = ['Spouse', 'Son', 'Daughter', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+export const POLICY_TYPES = ['General life insurance', 'Final expense / burial', 'Cremation', 'Leave money / legacy',
+  'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', 'Other / Not sure']
+export const TIMELINES = ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks']
+// Old timeline values stay so leads submitted before the change still score the same way.
+const TIMELINE_POINTS = { 'Same day coverage': 20, '1 week': 16, '2 weeks': 12, '3 weeks': 8, '4 weeks': 4, '1 to 3 months': 20, '3 to 6 months': 12, '6 to 12 months': 6 }
+export const US_STATES = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO',
+  'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
+export const CONDITIONS_MAX_POINTS = 7   // "None of these" = 7; each condition checked takes 1 off, floor 0
 export const MAX_BENEFICIARY_ROWS = 5
 
 const digits = (v) => String(v || '').replace(/\D/g, '')
@@ -33,14 +41,14 @@ export function scoreBreakdown(d) {
   return [
     { key: 'phone', label: 'Phone number', max: 10, pts: digits(d.phone).length >= 10 ? 10 : 0, tip: 'Add a full 10-digit phone number' },
     { key: 'email', label: 'Email address', max: 5, pts: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim()) ? 5 : 0, tip: 'Add an email address' },
-    { key: 'location', label: 'City and state', max: 5, pts: String(d.city || '').trim() && String(d.state || '').trim() ? 5 : 0, tip: 'Add city and state' },
+    { key: 'location', label: 'State', max: 5, pts: US_STATES.includes(String(d.state || '').toUpperCase().trim()) ? 5 : 0, tip: "Choose the lead's state" },
     { key: 'beneficiaries', label: 'Beneficiaries listed', max: 8, pts: ben >= 2 ? 8 : ben === 1 ? 5 : 0, tip: 'List their beneficiaries (2 or more is best)' },
     { key: 'beneficiaryDetails', label: 'Beneficiary names and relationships', max: 7, pts: rowsListed > 0 ? Math.round((7 * complete) / rowsListed) : 0, tip: 'Name each beneficiary and say how they are related' },
     { key: 'health', label: 'Health rating', max: 8, pts: health >= 7 ? 8 : health >= 4 ? 4 : 0, tip: 'Ask about their overall health' },
-    { key: 'conditions', label: 'Health conditions', max: 7, pts: conds.length > 0 ? 7 : 0, tip: 'Go through the health conditions list (check "None of these" if none apply)' },
+    { key: 'conditions', label: 'Health conditions', max: CONDITIONS_MAX_POINTS, pts: conds.length === 0 ? 0 : conds.includes(NONE_OF_THESE) ? CONDITIONS_MAX_POINTS : Math.max(0, CONDITIONS_MAX_POINTS - conds.length), tip: 'Go through the health conditions list (check "None of these" if none apply)', onlyIfBlank: true },
     { key: 'smoking', label: 'Smoking status', max: 5, pts: smoking === 'Non-Smoker' ? 5 : smoking === 'Former Smoker' ? 3 : smoking === 'Smoker' ? 2 : 0, tip: 'Ask about smoking' },
-    { key: 'policy', label: 'Policy interest', max: 15, pts: policy && !policy.includes('Not sure') ? 15 : policy ? 3 : 0, tip: 'Find out what type of policy they want' },
-    { key: 'timeline', label: 'Purchase timeline', max: 20, pts: tl === '1 to 3 months' ? 20 : tl === '3 to 6 months' ? 12 : tl === '6 to 12 months' ? 6 : 0, tip: 'Find out how soon they want coverage' },
+    { key: 'policy', label: 'Policy type', max: 15, pts: policy && !policy.includes('Not sure') ? 15 : policy ? 3 : 0, tip: 'Find out what type of policy they want' },
+    { key: 'timeline', label: 'Purchase timeline', max: 20, pts: Object.prototype.hasOwnProperty.call(TIMELINE_POINTS, tl) ? TIMELINE_POINTS[tl] : 0, tip: 'Find out how soon they want coverage' },
     { key: 'notes', label: 'Notes', max: 10, pts: notes >= 150 ? 10 : notes >= 30 ? 6 : notes > 0 ? 3 : 0, tip: 'Write a few sentences about their situation (150+ characters)' },
   ]
 }
@@ -53,6 +61,7 @@ export function starsFromScore(score) {
 export function scoreLead(d) {
   const rows = scoreBreakdown(d)
   const score = rows.reduce((s, r) => s + r.pts, 0)
-  const tips = rows.filter((r) => r.pts < r.max).sort((a, b) => (b.max - b.pts) - (a.max - a.pts)).slice(0, 3)
+  // The conditions row only gets a tip while it is unanswered: a checked condition is a fact, not something to "fix".
+  const tips = rows.filter((r) => r.pts < r.max && !(r.onlyIfBlank && (d.healthConditions || []).length > 0)).sort((a, b) => (b.max - b.pts) - (a.max - a.pts)).slice(0, 3)
   return { score, stars: starsFromScore(score), tips, rows }
 }

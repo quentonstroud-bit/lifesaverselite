@@ -17,13 +17,13 @@ const SCORE_DIMS = [
   { key: 'health',       label: 'Health Rating',       options: ['9–10 (Excellent)', '7–8 (Good)', '5–6 (Average)', '3–4 (Below avg)', '1–2 (Poor)'] },
   { key: 'beneficiaries',label: 'Beneficiaries Listed',options: ['3 or more', '2', '1', 'None'] },
   { key: 'smoking',      label: 'Smoking Status',      options: ['Non-Smoker', 'Former Smoker', 'Current Smoker'] },
-  { key: 'timeline',     label: 'Purchase Timeline',   options: ['1–3 months', '3–6 months', '6–12 months', 'Just exploring'] },
+  { key: 'timeline',     label: 'Purchase Timeline',   options: ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks'] },
   { key: 'policy',       label: 'Policy Selected',     options: ['Specific product named', 'General category', 'Unsure'] },
   { key: 'engagement',   label: 'Engagement Level',    options: ['Ready for a call', 'Interested', 'Passive', 'Unresponsive'] },
 ]
 
 const WEIGHTS = { health: 25, beneficiaries: 25, smoking: 20, timeline: 10, policy: 10, engagement: 10 }
-const SCORES  = { health: [100,80,55,25,0], beneficiaries: [100,75,40,0], smoking: [100,50,0], timeline: [100,65,35,10], policy: [100,50,0], engagement: [100,60,20,0] }
+const SCORES  = { health: [100,80,55,25,0], beneficiaries: [100,75,40,0], smoking: [100,50,0], timeline: [100,80,60,40,20], policy: [100,50,0], engagement: [100,60,20,0] }
 
 function calculateStars(sel) {
   let total = 0

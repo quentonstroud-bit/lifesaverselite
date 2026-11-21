@@ -127,6 +127,8 @@ Base URL = Apps Script Web App `/exec` URL, supplied to the frontend as `VITE_WE
 | `LifeSaver_Applications` | Timestamp, Name, Email, Phone, Facebook (labelled "Main Social Media" in UI), Positions, Employment, Insurance, Referral, Excites, Resume |
 | `Agent_Broker_Applications` | Timestamp, Name, Agency, Email, Phone, License, States, Years, Lines, PayoutStructure, HearAbout, PaymentMethod |
 | `Leads` | LeadID, Timestamp, LeadName, Phone, Email, City, State, Age, Beneficiaries, HealthRating, Smoking, PolicyInterest, Timeline, Notes, LifeSaverID, LifeSaverHandle, Status, StarRating, Expiry, LSEFee, PoolSource, **BeneficiaryDetails** ("Name (Relationship); ..."), **HealthConditions** ("Diabetes; Stroke") |
+
+The lead's name is stored in `LeadName` as `First Last` (entered as two fields). Agents see first name + last initial (last initial = the last word of the name).
 | `Transactions` | Timestamp, LeadID, AgentID, Type, Amount, LifeSaverID, Source |
 | `Users` | UserID, Name, Role, Email, Status, Tier, AssignedAgentEmail |
 
@@ -205,21 +207,23 @@ The real fee is read from Stripe after payment; the backend only estimates (2.9%
 
 ### Star scoring (computed from the referral form, 0-100 points)
 
+Form order: **First name, Last name** (separate required fields, not scored), phone, email, city, **state**, age, beneficiaries listed + each beneficiary's name and relationship, then the Health section (rating, conditions checklist, smoking), policy type, purchase timeline, notes.
+
 | Field | Points |
 |---|---|
 | Phone (10+ digits) | 10 |
 | Valid email | 5 |
-| City and state | 5 |
+| **State** (dropdown of the 50 states + DC; **the state is what earns the points, city is optional and unscored**, because agents are licensed by state) | 5 |
 | Beneficiaries listed | 2+ = 8, 1 = 5 |
 | Beneficiary names + relationships (each listed row needs a name of 2+ characters and a relationship; up to 5 rows) | up to 7, proportional to rows completed |
 | Health rating | 7+ = 8, 4-6 = 4 |
-| Health conditions checklist reviewed (any box, or "None of these") | 7 |
+| **Health conditions checklist** | **"None of these" = 7 of 7. Otherwise 7 minus 1 for every condition checked, never below 0. Left blank = 0.** |
 | Smoking status | Non-smoker 5, Former 3, Smoker 2 |
-| Policy interest | Specific policy 15, "Other / Not sure" 3 |
-| Purchase timeline | 1-3 months 20, 3-6 months 12, 6-12 months 6, just exploring 0 |
+| Policy type | Any specific type 15, "Other / Not sure" 3 |
+| **Purchase timeline** | **Same day coverage 20, 1 week 16, 2 weeks 12, 3 weeks 8, 4 weeks 4** (the three old values from before 2026-11-21 still score so older leads are unaffected) |
 | Notes | **150+ characters = 10**, 30-149 = 6, any text = 3 |
 
-Beneficiaries (15) and Health (20) keep the same point budgets as before, so the total is still 100 and the star thresholds below did not move. Health conditions offered (10 + "None of these"): diabetes; heart disease or heart attack; stroke; cancer (current or past); kidney disease or renal failure; high blood pressure; COPD, emphysema or lung disease; liver disease or hepatitis; Alzheimer's or dementia; alcohol or drug treatment. "None of these" only counts when nothing else is checked. The lists and weights live in `backend/Code.gs` (`HEALTH_CONDITIONS`, `RELATIONSHIPS`, `scoreLead`) and are mirrored in `src/lib/leadScore.js`; a parity test checks they agree.
+Beneficiaries (15) and Health (20) keep the same point budgets as before, so the total is still 100 and the star thresholds below did not move. Health conditions offered (11 + "None of these"): diabetes; heart disease or heart attack; stroke; cancer (current or past); kidney disease or renal failure; high blood pressure; COPD, emphysema or lung disease; liver disease or hepatitis; **HIV/AIDS**; Alzheimer's or dementia; alcohol or drug treatment. Beneficiary relationships: spouse, **son, daughter**, parent, sibling, other family, friend, other. **Policy types:** general life insurance, final expense / burial, cremation, leave money / legacy, mortgage protection, IUL, annuity, safe retirement planning, other / not sure (health insurance, Medicare, auto and home were removed). The server only accepts values from these lists (anything else is stored blank). "None of these" only counts when nothing else is checked. **Design note:** because "None of these" scores highest, a LifeSaver is rewarded for not reporting conditions. Agents see the checked conditions before buying, so under-reporting costs LifeSavers their reputation, but consider a rule later (for example, agents can flag a lead whose health details were wrong, which removes its payout). The lists and weights live in `backend/Code.gs` (`HEALTH_CONDITIONS`, `RELATIONSHIPS`, `POLICY_TYPES`, `TIMELINES`, `US_STATES`, `scoreLead`) and are mirrored in `src/lib/leadScore.js`; a parity test checks they agree.
 
 **Privacy:** beneficiary **names** are stored (Leads sheet) but never shown to an agent before purchase. Agents see only relationships and the health-condition list on the lead card; names go out in the post-purchase email with the other contact details.
 
@@ -270,6 +274,8 @@ Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` 
 
 ### Domain plan (decided)
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
+
+**Lead ids** are `LD-` + milliseconds + 3 random digits, re-rolled if already used and saved under a lock (previously two referrals in the same millisecond could share an id, which would have let a purchase attach to the wrong lead). Checkout still validates `/^LD-\d+$/`.
 
 ### Payroll report (Admin > Revenue > LifeSaver Payroll)
 Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cutoff, minus rows already marked `PAYOUT_PAID`. The report lists who is owed what, downloads as **CSV** (formula-injection safe), and **Mark all paid** records the batch. Marking is guarded: it refuses if totals changed since you opened the report (409), is idempotent per batch id, and requires a confirm dialog. Workflow: open report -> Download CSV -> send the money -> Mark all paid. Payment method per LifeSaver is not stored yet (add a payout-method field to the application/profile when you choose a payout rail).

@@ -2,15 +2,13 @@ import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { CheckCircle, Lock } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
-import { scoreLead, HEALTH_CONDITIONS, NONE_OF_THESE, RELATIONSHIPS, MAX_BENEFICIARY_ROWS } from '../../../lib/leadScore'
+import { scoreLead, HEALTH_CONDITIONS, NONE_OF_THESE, RELATIONSHIPS, MAX_BENEFICIARY_ROWS, POLICY_TYPES, TIMELINES, US_STATES } from '../../../lib/leadScore'
 import { apiPost } from '../../../lib/api'
 
 
-const POLICY_OPTIONS = ['Life Insurance', 'Health Insurance', 'Final Expense', 'Annuity', 'Medicare', 'Auto', 'Home', 'Other / Not sure']
-const TIMELINE_OPTIONS = ['1 to 3 months', '3 to 6 months', '6 to 12 months', 'Just exploring options']
 
 const INITIAL = {
-  leadName: '', phone: '', email: '', city: '', state: '',
+  firstName: '', lastName: '', phone: '', email: '', city: '', state: '',
   age: '', beneficiaries: '', beneficiaryDetails: [],
   healthRating: 5, healthConditions: [], smoking: 'Non-Smoker',
   policyInterest: '', timeline: '', notes: '',
@@ -107,10 +105,16 @@ export default function LSSubmit() {
 
       {/* Lead contact */}
       <Section title="Lead Contact Info">
-        <Field label="Full Name" required>
-          <input required type="text" placeholder="First and last name" value={form.leadName}
-            onChange={e => setForm(p => ({ ...p, leadName: e.target.value }))} className={INPUT} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="First Name" required>
+            <input required type="text" autoComplete="off" placeholder="First name" maxLength={40} value={form.firstName}
+              onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} className={INPUT} />
+          </Field>
+          <Field label="Last Name" required>
+            <input required type="text" autoComplete="off" placeholder="Last name" maxLength={40} value={form.lastName}
+              onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} className={INPUT} />
+          </Field>
+        </div>
         <Field label="Phone Number" required>
           <input required type="tel" placeholder="(555) 000-0000" value={form.phone}
             onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} className={INPUT} />
@@ -125,8 +129,10 @@ export default function LSSubmit() {
               onChange={e => setForm(p => ({ ...p, city: e.target.value }))} className={INPUT} />
           </Field>
           <Field label="State">
-            <input type="text" placeholder="TX" maxLength={2} value={form.state}
-              onChange={e => setForm(p => ({ ...p, state: e.target.value.toUpperCase() }))} className={INPUT} />
+            <select value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))} className={SELECT}>
+              <option value="">Select</option>
+              {US_STATES.map(st => <option key={st} value={st}>{st}</option>)}
+            </select>
           </Field>
         </div>
       </Section>
@@ -206,16 +212,16 @@ export default function LSSubmit() {
 
       {/* Policy details */}
       <Section title="Policy Details">
-        <Field label="Policy Interest" required>
+        <Field label="Policy Type" required>
           <select required value={form.policyInterest} onChange={e => setForm(p => ({ ...p, policyInterest: e.target.value }))} className={SELECT}>
             <option value="">Select policy type</option>
-            {POLICY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            {POLICY_TYPES.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Purchase Timeline" required>
           <select required value={form.timeline} onChange={e => setForm(p => ({ ...p, timeline: e.target.value }))} className={SELECT}>
             <option value="">Select timeline</option>
-            {TIMELINE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            {TIMELINES.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </Section>
