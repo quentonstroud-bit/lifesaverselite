@@ -126,11 +126,11 @@ Base URL = Apps Script Web App `/exec` URL, supplied to the frontend as `VITE_WE
 |---|---|
 | `LifeSaver_Applications` | Timestamp, Name, Email, Phone, Facebook (labelled "Main Social Media" in UI), Positions, Employment, Insurance, Referral, Excites, Resume |
 | `Agent_Broker_Applications` | Timestamp, Name, Agency, Email, Phone, License, States, Years, Lines, PayoutStructure, HearAbout, PaymentMethod |
-| `Leads` | LeadID, Timestamp, LeadName, Phone, Email, City, State, Age, Beneficiaries, HealthRating, Smoking, PolicyInterest, Timeline, Notes, LifeSaverID, LifeSaverHandle, Status, StarRating, Expiry, LSEFee, PoolSource |
+| `Leads` | LeadID, Timestamp, LeadName, Phone, Email, City, State, Age, Beneficiaries, HealthRating, Smoking, PolicyInterest, Timeline, Notes, LifeSaverID, LifeSaverHandle, Status, StarRating, Expiry, LSEFee, PoolSource, **BeneficiaryDetails** ("Name (Relationship); ..."), **HealthConditions** ("Diabetes; Stroke") |
 | `Transactions` | Timestamp, LeadID, AgentID, Type, Amount, LifeSaverID, Source |
 | `Users` | UserID, Name, Role, Email, Status, Tier, AssignedAgentEmail |
 
-> Verify against the sheet if you change columns - the code reads by position/header; keep them in sync.
+> Verify against the sheet if you change columns - the code reads by position; keep them in sync. **Add the two new headers (BeneficiaryDetails, HealthConditions) as columns V and W of the `Leads` sheet.** Existing leads without them simply score on their saved stars.
 
 ## 7. Config, Env & Deploy
 
@@ -210,12 +210,18 @@ The real fee is read from Stripe after payment; the backend only estimates (2.9%
 | Phone (10+ digits) | 10 |
 | Valid email | 5 |
 | City and state | 5 |
-| Beneficiaries | 2+ = 15, 1 = 10, 0 = 0 |
-| Health rating | 7+ = 10, 4-6 = 5 |
-| Smoking | Non-smoker 10, Former 6, Smoker 3 |
+| Beneficiaries listed | 2+ = 8, 1 = 5 |
+| Beneficiary names + relationships (each listed row needs a name of 2+ characters and a relationship; up to 5 rows) | up to 7, proportional to rows completed |
+| Health rating | 7+ = 8, 4-6 = 4 |
+| Health conditions checklist reviewed (any box, or "None of these") | 7 |
+| Smoking status | Non-smoker 5, Former 3, Smoker 2 |
 | Policy interest | Specific policy 15, "Other / Not sure" 3 |
 | Purchase timeline | 1-3 months 20, 3-6 months 12, 6-12 months 6, just exploring 0 |
-| Notes | 100+ chars 10, 30+ chars 6, any 3 |
+| Notes | **150+ characters = 10**, 30-149 = 6, any text = 3 |
+
+Beneficiaries (15) and Health (20) keep the same point budgets as before, so the total is still 100 and the star thresholds below did not move. Health conditions offered (10 + "None of these"): diabetes; heart disease or heart attack; stroke; cancer (current or past); kidney disease or renal failure; high blood pressure; COPD, emphysema or lung disease; liver disease or hepatitis; Alzheimer's or dementia; alcohol or drug treatment. "None of these" only counts when nothing else is checked. The lists and weights live in `backend/Code.gs` (`HEALTH_CONDITIONS`, `RELATIONSHIPS`, `scoreLead`) and are mirrored in `src/lib/leadScore.js`; a parity test checks they agree.
+
+**Privacy:** beneficiary **names** are stored (Leads sheet) but never shown to an agent before purchase. Agents see only relationships and the health-condition list on the lead card; names go out in the post-purchase email with the other contact details.
 
 Stars: 85+ = 5, 70+ = 4, 55+ = 3, 45+ = 2, below 45 = 1. **These thresholds are a first draft - tune `STAR_THRESHOLDS` and `scoreLead()` in `Code.gs` after looking at real leads.** Leads submitted before auto-scoring are scored the same way on the fly.
 

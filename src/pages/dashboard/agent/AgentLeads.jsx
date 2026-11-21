@@ -183,6 +183,13 @@ function LeadCard({ lead, buying, onBuy, onDecline }) {
           ))}
         </div>
 
+        {(lead.conditions?.length > 0 || lead.beneficiaryRelationships?.length > 0) && (
+          <div className="bg-bg rounded-lg px-3 py-2 text-xs mb-4 flex flex-col gap-1">
+            {lead.beneficiaryRelationships?.length > 0 && <p><span className="text-gray-500">Beneficiaries:</span> {lead.beneficiaryRelationships.join(', ')}</p>}
+            {lead.conditions?.length > 0 && <p><span className="text-gray-500">Health conditions:</span> {lead.conditions.join(', ')}</p>}
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
           <span>From {lead.lifesaverHandle}</span>
         </div>

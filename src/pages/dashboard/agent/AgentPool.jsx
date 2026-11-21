@@ -123,6 +123,13 @@ export default function AgentPool() {
                     ))}
                   </div>
 
+                  {(lead.conditions?.length > 0 || lead.beneficiaryRelationships?.length > 0) && (
+                            <div className="bg-bg rounded-lg px-3 py-2 text-xs mb-4 flex flex-col gap-1">
+                      {lead.beneficiaryRelationships?.length > 0 && <p><span className="text-gray-500">Beneficiaries:</span> {lead.beneficiaryRelationships.join(', ')}</p>}
+                      {lead.conditions?.length > 0 && <p><span className="text-gray-500">Health conditions:</span> {lead.conditions.join(', ')}</p>}
+                    </div>
+                  )}
+
                   <p className="text-xs text-gray-500 mb-4">From {lead.lifesaverHandle}</p>
 
                   <button onClick={() => setClaiming(lead)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">

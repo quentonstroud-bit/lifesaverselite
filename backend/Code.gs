@@ -44,6 +44,61 @@ function leadPrice(stars) { return PRICE_BY_STARS[stars] || 0 }
 function leadFee(stars)   { return leadPrice(stars) > 0 ? LEAD_FEE : 0 }
 function leadTotal(stars) { return round2(leadPrice(stars) + leadFee(stars)) }
 
+// Health conditions a LifeSaver can check off (important for life insurance underwriting).
+var HEALTH_CONDITIONS = [
+  'Diabetes', 'Heart disease or heart attack', 'Stroke', 'Cancer (current or past)',
+  'Kidney disease or renal failure', 'High blood pressure', 'COPD, emphysema or lung disease',
+  'Liver disease or hepatitis', "Alzheimer's or dementia", 'Alcohol or drug treatment'
+]
+var NONE_OF_THESE = 'None of these'
+var RELATIONSHIPS = ['Spouse', 'Child', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+var MAX_BENEFICIARY_ROWS = 5
+
+// Strip characters that would break the stored text format or an email, and cap length.
+function cleanText(v, max) {
+  return String(v === undefined || v === null ? '' : v).replace(/[;()\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+}
+
+function cleanConditions(arr) {
+  var out = [], hasNone = false
+  if (Object.prototype.toString.call(arr) !== '[object Array]') return out
+  for (var i = 0; i < arr.length && i < 20; i++) {
+    var c = String(arr[i])
+    if (c === NONE_OF_THESE) hasNone = true
+    else if (HEALTH_CONDITIONS.indexOf(c) !== -1 && out.indexOf(c) === -1) out.push(c)
+  }
+  if (!out.length && hasNone) out.push(NONE_OF_THESE)   // "None" only counts when nothing else is checked
+  return out
+}
+
+function cleanBeneficiaries(arr) {
+  var out = []
+  if (Object.prototype.toString.call(arr) !== '[object Array]') return out
+  for (var i = 0; i < arr.length && out.length < MAX_BENEFICIARY_ROWS; i++) {
+    var b = arr[i] || {}
+    var rel = String(b.relationship || '')
+    out.push({ name: cleanText(b.name, 60), relationship: RELATIONSHIPS.indexOf(rel) !== -1 ? rel : (rel ? 'Other' : '') })
+  }
+  return out
+}
+
+// Stored in the Leads sheet as readable text: "Jane Doe (Spouse); Sam Doe (Child)" and "Diabetes; Stroke".
+function beneficiariesToText(list) {
+  return list.filter(function (b) { return b.name || b.relationship })
+    .map(function (b) { return (b.name || '?') + ' (' + (b.relationship || '?') + ')' }).join('; ')
+}
+function parseBeneficiaries(text) {
+  var out = []
+  String(text || '').split('; ').forEach(function (part) {
+    var m = /^(.*) \((.+)\)$/.exec(part)
+    if (m) out.push({ name: m[1] === '?' ? '' : m[1], relationship: m[2] === '?' ? '' : m[2] })
+  })
+  return out
+}
+function parseConditions(text) {
+  return String(text || '').split('; ').filter(function (c) { return c === NONE_OF_THESE || HEALTH_CONDITIONS.indexOf(c) !== -1 })
+}
+
 // Score a referral from how complete and strong the submitted form is. 0-100.
 function scoreLead(d) {
   var pts = 0
@@ -52,18 +107,31 @@ function scoreLead(d) {
   if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim())) pts += 5
   if (String(d.city || '').trim() && String(d.state || '').trim()) pts += 5
 
+  // Beneficiaries: 15 points = count (8) + each listed beneficiary named with a relationship (7)
   var ben = parseInt(d.beneficiaries, 10) || 0
-  if (ben >= 2) pts += 15
-  else if (ben === 1) pts += 10
+  if (ben >= 2) pts += 8
+  else if (ben === 1) pts += 5
+  var rows = Math.min(ben, MAX_BENEFICIARY_ROWS)
+  if (rows > 0) {
+    var det = d.beneficiaryDetails || [], complete = 0
+    for (var b = 0; b < rows && b < det.length; b++) {
+      if (det[b] && String(det[b].name || '').trim().length >= 2 && String(det[b].relationship || '').trim()) complete++
+    }
+    pts += Math.round(7 * complete / rows)
+  }
 
+  // Health: 20 points = rating (8) + conditions reviewed (7) + smoking (5)
   var health = parseInt(d.healthRating, 10) || 0
-  if (health >= 7) pts += 10
-  else if (health >= 4) pts += 5
+  if (health >= 7) pts += 8
+  else if (health >= 4) pts += 4
+
+  var conds = d.healthConditions
+  if (conds && conds.length > 0) pts += 7
 
   var smoking = String(d.smoking || '')
-  if (smoking === 'Non-Smoker') pts += 10
-  else if (smoking === 'Former Smoker') pts += 6
-  else if (smoking === 'Smoker') pts += 3
+  if (smoking === 'Non-Smoker') pts += 5
+  else if (smoking === 'Former Smoker') pts += 3
+  else if (smoking === 'Smoker') pts += 2
 
   var policy = String(d.policyInterest || '')
   if (policy && policy.indexOf('Not sure') === -1) pts += 15
@@ -75,7 +143,7 @@ function scoreLead(d) {
   else if (tl === '6 to 12 months') pts += 6
 
   var notesLen = String(d.notes || '').trim().length
-  if (notesLen >= 100) pts += 10
+  if (notesLen >= 150) pts += 10
   else if (notesLen >= 30) pts += 6
   else if (notesLen > 0) pts += 3
 
@@ -93,7 +161,8 @@ function starsFromScore(score) {
 function leadFromRow(row) {
   return { phone: row[3], email: row[4], city: row[5], state: row[6], age: row[7],
            beneficiaries: row[8], healthRating: row[9], smoking: row[10],
-           policyInterest: row[11], timeline: row[12], notes: row[13] }
+           policyInterest: row[11], timeline: row[12], notes: row[13],
+           beneficiaryDetails: parseBeneficiaries(row[21]), healthConditions: parseConditions(row[22]) }
 }
 
 function starsForRow(row) {
@@ -438,6 +507,8 @@ function getAgentLeads(params) {
         price: leadPrice(starsForRow(row)), fee: leadFee(starsForRow(row)), total: leadTotal(starsForRow(row)),
         age: row[7], health: row[9], smoking: row[10],
         beneficiaries: row[8], policy: row[11], timeline: row[12],
+        conditions: parseConditions(row[22]),
+        beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
         lifesaverHandle: row[15], notes: row[13]
       })
     }
@@ -589,6 +660,8 @@ function getPoolLeads() {
       price: leadPrice(starsForRow(row)), fee: leadFee(starsForRow(row)), total: leadTotal(starsForRow(row)),
       age: row[7], health: row[9], smoking: row[10],
       beneficiaries: row[8], policy: row[11], timeline: row[12],
+      conditions: parseConditions(row[22]),
+      beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
       lifesaverHandle: row[15],
       source: String(row[19] || 'Available in pool')
     })
@@ -987,14 +1060,18 @@ function handleReferralSubmit(d) {
   var ts    = new Date().toISOString()
   var leadId = 'LD-' + Date.now()
   var expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  d.beneficiaryDetails = cleanBeneficiaries(d.beneficiaryDetails)
+  d.healthConditions   = cleanConditions(d.healthConditions)
   var stars  = starsFromScore(scoreLead(d))
 
+  // Columns 21-23: PoolSource (unused here), BeneficiaryDetails, HealthConditions
   sheet.appendRow([
     leadId, ts, d.leadName, d.phone, d.email || '',
     d.city || '', d.state || '', d.age, d.beneficiaries || 0,
     d.healthRating, d.smoking, d.policyInterest, d.timeline,
     d.notes || '', d.lifesaverId, d.lifesaverHandle,
-    'PENDING', stars, expiry, leadFee(stars)
+    'PENDING', stars, expiry, leadFee(stars),
+    '', beneficiariesToText(d.beneficiaryDetails), d.healthConditions.join('; ')
   ])
 
   if (stars >= 2) awardLevelBonuses(ss, d.lifesaverId, d.lifesaverHandle)
@@ -1100,6 +1177,8 @@ function agentPurchaseBody(row, stars) {
     + '<p><strong>Location:</strong> ' + escHtml(row[5]) + ', ' + escHtml(row[6]) + '</p>'
     + '<p><strong>Age:</strong> ' + escHtml(row[7]) + ' | <strong>Beneficiaries:</strong> ' + escHtml(row[8])
     + ' | <strong>Health:</strong> ' + escHtml(row[9]) + '/10 | <strong>Smoking:</strong> ' + escHtml(row[10]) + '</p>'
+    + '<p><strong>Beneficiaries:</strong> ' + escHtml(row[21] || 'Not provided') + '</p>'
+    + '<p><strong>Health conditions:</strong> ' + escHtml(row[22] || 'Not provided') + '</p>'
     + '<p><strong>Policy interest:</strong> ' + escHtml(row[11]) + ' | <strong>Timeline:</strong> ' + escHtml(row[12]) + '</p>'
     + '<p><strong>Star rating:</strong> ' + stars + ' / 5</p>'
     + '<p><strong>Notes:</strong> ' + escHtml(row[13]) + '</p>'

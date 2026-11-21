@@ -23,7 +23,7 @@ const GETS = {
   admin_payout_report:{ role: 'admin',      build: (u, p) => (isIso(p.through) ? { through: p.through } : {}) },
 }
 
-const REFERRAL_FIELDS = ['leadName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'healthRating', 'smoking', 'policyInterest', 'timeline', 'notes']
+const REFERRAL_FIELDS = ['leadName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes']
 
 // formType -> { role | null (public), build(user, body) -> fields sent to Apps Script }
 const POSTS = {
@@ -31,7 +31,12 @@ const POSTS = {
   agent_enrollment: { role: null, public: true, build: (u, b) => pick(b, ['name', 'agency', 'email', 'phone', 'license', 'states', 'years', 'lines', 'payoutStructure', 'hearAbout', 'paymentMethod']) },
   referral_submit: {
     role: 'lifesaver',
-    build: (u, b) => ({ ...pick(b, REFERRAL_FIELDS), lifesaverId: u.id, lifesaverHandle: u.handle, lifesaverEmail: u.email }),
+    build: (u, b) => ({
+      ...pick(b, REFERRAL_FIELDS),
+      beneficiaryDetails: Array.isArray(b.beneficiaryDetails) ? b.beneficiaryDetails.slice(0, 10).map((x) => ({ name: String(x?.name ?? '').slice(0, 80), relationship: String(x?.relationship ?? '').slice(0, 40) })) : [],
+      healthConditions: Array.isArray(b.healthConditions) ? b.healthConditions.slice(0, 20).map((x) => String(x).slice(0, 80)) : [],
+      lifesaverId: u.id, lifesaverHandle: u.handle, lifesaverEmail: u.email,
+    }),
   },
   lead_decline:    { role: 'agent', build: (u, b) => ({ leadId: b.leadId, agentEmail: u.email }) },
   lead_accept:     { role: 'agent', build: (u, b) => ({ leadId: b.leadId, agentEmail: u.email }) },
