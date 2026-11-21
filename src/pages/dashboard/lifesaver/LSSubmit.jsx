@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { CheckCircle, Lock } from 'lucide-react'
+import StarRating from '../../../components/StarRating'
+import { scoreLead } from '../../../lib/leadScore'
+import { apiPost } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const POLICY_OPTIONS = ['Life Insurance', 'Health Insurance', 'Final Expense', 'Annuity', 'Medicare', 'Auto', 'Home', 'Other / Not sure']
 const TIMELINE_OPTIONS = ['1 to 3 months', '3 to 6 months', '6 to 12 months', 'Just exploring options']
@@ -18,6 +20,7 @@ export default function LSSubmit() {
   const [form, setForm] = useState(INITIAL)
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const trainingDone = user?.trainingComplete
 
@@ -57,15 +60,14 @@ export default function LSSubmit() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    setError('')
     setLoading(true)
     try {
-      const payload = { formType: 'referral_submit', lifesaverId: user?.id, lifesaverHandle: user?.handle, ...form }
-      if (WEBAPP_URL) {
-        await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) })
-      }
+      // Identity (who is submitting) is taken from your signed-in session on the server.
+      await apiPost('referral_submit', form)
       setSubmitted(true)
-    } catch {
-      // silent for demo
+    } catch (err) {
+      setError(err.message || 'Could not submit. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -77,6 +79,9 @@ export default function LSSubmit() {
         <h1 className="text-2xl font-bold">Submit a Referral</h1>
         <p className="text-gray-400 text-sm mt-1">All fields marked * are required.</p>
       </div>
+
+      {/* Live lead-quality meter */}
+      <QualityMeter form={form} />
 
       {/* Lead contact */}
       <Section title="Lead Contact Info">
@@ -161,11 +166,38 @@ export default function LSSubmit() {
           className="w-full bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary resize-none" />
       </Section>
 
+      {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl px-4 py-3">{error}</div>}
+
       <button type="submit" disabled={loading}
         className="w-full bg-primary hover:bg-red-700 disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-colors">
         {loading ? 'Submitting...' : 'Submit Referral'}
       </button>
     </form>
+  )
+}
+
+function QualityMeter({ form }) {
+  const { score, stars, tips } = scoreLead(form)
+  const bar = stars >= 4 ? 'bg-success' : stars === 3 ? 'bg-warning' : 'bg-red-500'
+  return (
+    <div className="sticky top-2 z-10 bg-surface border border-gray-700 rounded-xl p-4 shadow-lg">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Lead quality</p>
+          <p className="text-sm font-semibold">{stars >= 4 ? 'Strong lead' : stars === 3 ? 'Getting there' : 'Needs more detail'}</p>
+        </div>
+        <StarRating rating={stars} size={20} />
+      </div>
+      <div className="h-2 bg-bg rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-300 ${bar}`} style={{ width: `${score}%` }} />
+      </div>
+      {tips.length > 0 && (
+        <p className="text-xs text-gray-400 mt-2">
+          To raise it: {tips.map(t => t.tip.toLowerCase()).join('; ')}.
+        </p>
+      )}
+      <p className="text-xs text-gray-600 mt-1">The more questions you answer well, the higher the rating. Final rating is set when you submit.</p>
+    </div>
   )
 }
 

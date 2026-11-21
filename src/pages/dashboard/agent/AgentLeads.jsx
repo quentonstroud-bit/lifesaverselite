@@ -3,8 +3,8 @@ import { useAuth } from '../../../context/AuthContext'
 import { CheckCircle, X, Clock, CreditCard } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
 import { startPurchase, readPurchaseResult, money } from '../../../lib/purchase'
+import { apiGet, apiPost } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AgentLeads() {
   const { user }   = useAuth()
@@ -17,9 +17,8 @@ export default function AgentLeads() {
   const [banner,   setBanner]   = useState(() => readPurchaseResult())
 
   function fetchLeads() {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=agent_leads&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('agent_leads')
       .then(d => {
         setLeads(d.leads || [])
         setStats({ accepted: d.accepted || 0, declined: d.declined || 0 })
@@ -34,7 +33,7 @@ export default function AgentLeads() {
     setError('')
     setBuyingId(lead.id)
     try {
-      const r = await startPurchase(lead, user.email)
+      const r = await startPurchase(lead)
       if (r.free) {
         setLeads(p => p.filter(l => l.id !== lead.id))
         setAccepted(lead)
@@ -47,16 +46,12 @@ export default function AgentLeads() {
   }
 
   async function declineLead(lead) {
-    setLeads(p => p.filter(l => l.id !== lead.id))
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ formType: 'lead_decline', leadId: lead.id, agentId: user.email })
-        })
-      } catch {}
+    setError('')
+    try {
+      await apiPost('lead_decline', { leadId: lead.id })
+      setLeads(p => p.filter(l => l.id !== lead.id))
+    } catch (e) {
+      setError(e.message)
     }
   }
 

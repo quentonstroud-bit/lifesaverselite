@@ -1,6 +1,9 @@
-// POST /api/checkout  { leadId, agentEmail }  ->  { url } (Stripe Checkout) or { free: true }
+// POST /api/checkout  { leadId }  (agent must be signed in)  ->  { url } (Stripe Checkout) or { free: true }
 // The amount is NEVER taken from the browser: the price comes from the Apps Script backend,
 // which computes it from the lead's star rating.
+
+import { getSession, sameOrigin } from './_lib/session.js'
+import { lookupUser } from './_lib/gas.js'
 
 const STRIPE = 'https://api.stripe.com/v1'
 
@@ -19,9 +22,16 @@ export default async function handler(req, res) {
   const { key, webapp, serverKey, site } = env()
   if (!key || !webapp || !serverKey) return res.status(500).json({ error: 'Payments are not configured' })
 
-  const { leadId, agentEmail } = req.body || {}
+  if (!sameOrigin(req)) return res.status(403).json({ error: 'Forbidden' })
+  const session = getSession(req)
+  if (!session) return res.status(401).json({ error: 'Please sign in.' })
+  let agent
+  try { agent = await lookupUser(session.email) } catch { return res.status(502).json({ error: 'Could not reach the lead service' }) }
+  if (!agent || agent.role !== 'agent') return res.status(403).json({ error: 'Only agents can buy leads' })
+  const agentEmail = agent.email   // identity comes from the session, never from the request
+
+  const { leadId } = req.body || {}
   if (typeof leadId !== 'string' || !/^LD-\d+$/.test(leadId)) return res.status(400).json({ error: 'Invalid lead' })
-  if (typeof agentEmail !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(agentEmail)) return res.status(400).json({ error: 'Invalid agent' })
 
   let quote
   try {
@@ -59,7 +69,7 @@ export default async function handler(req, res) {
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: p,
   })
-  const session = await r.json()
-  if (!r.ok || !session.url) return res.status(502).json({ error: 'Could not start checkout' })
-  return res.json({ url: session.url })
+  const stripeSession = await r.json()
+  if (!r.ok || !stripeSession.url) return res.status(502).json({ error: 'Could not start checkout' })
+  return res.json({ url: stripeSession.url })
 }

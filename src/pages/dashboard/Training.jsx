@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { Play, CheckCircle, Lock, Award, Download, ArrowLeft, X } from 'lucide-react'
+import LevelsReveal from '../../components/LevelsReveal'
 
 const MODULES = [
   {
@@ -16,8 +17,8 @@ const MODULES = [
   },
   {
     id: 3, title: 'Compensation', duration: '10 min',
-    desc: 'Understand exactly how you get paid -- tiers, STARS, multipliers, and milestone bonuses.',
-    takeaways: ['How base payouts are calculated per accepted lead', 'How the weekly multiplier works and when it activates', 'How STARS convert to milestone bonuses'],
+    desc: 'Understand exactly how you get paid: star ratings, what each lead earns, and your LifeSaver Levels with cash bonuses.',
+    takeaways: ['How every referral is rated 1 to 5 stars from the details you submit', 'What you earn per lead at each star rating', 'How LifeSaver Levels work and the cash bonuses you unlock'],
   },
   {
     id: 4, title: 'Next Steps', duration: '6 min',
@@ -74,6 +75,9 @@ export default function Training() {
         <div className="h-2 bg-surface rounded-full overflow-hidden mb-8">
           <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(completed.length / MODULES.length) * 100}%` }} />
         </div>
+
+        {/* Levels reveal: unlocked once the Compensation module is complete */}
+        {completed.includes(3) && <div className="mb-8"><LevelsReveal /></div>}
 
         {/* Modules */}
         <div className="flex flex-col gap-4 mb-8">

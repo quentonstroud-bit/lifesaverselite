@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { AlertTriangle, Users, Building2, List, Globe } from 'lucide-react'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 const WEEKLY_TARGET = 200
 
 export default function AdminOverview() {
@@ -9,9 +9,7 @@ export default function AdminOverview() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(WEBAPP_URL + '?query=dashboard_stats')
-      .then(r => r.json())
+        apiGet('dashboard_stats')
       .then(d => { setStats(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])

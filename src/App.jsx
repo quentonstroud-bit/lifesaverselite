@@ -7,6 +7,7 @@ import Landing from './pages/Landing'
 import Apply from './pages/Apply'
 import AgentEnroll from './pages/AgentEnroll'
 import Login from './pages/Login'
+import VerifyLink from './pages/VerifyLink'
 
 // Dashboards
 import LifeSaverDashboard from './pages/dashboard/LifeSaverDashboard'
@@ -15,7 +16,8 @@ import AdminDashboard from './pages/dashboard/AdminDashboard'
 import Training from './pages/dashboard/Training'
 
 function ProtectedRoute({ role, children }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen bg-bg flex items-center justify-center text-gray-500 text-sm">Loading...</div>
   if (!user) return <Navigate to="/login" replace />
   if (role && user.role !== role) return <Navigate to="/login" replace />
   return children
@@ -28,6 +30,7 @@ function AppRoutes() {
       <Route path="/apply" element={<Apply />} />
       <Route path="/agents/enroll" element={<AgentEnroll />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/auth/verify" element={<VerifyLink />} />
 
       <Route path="/dashboard/lifesaver/*" element={
         <ProtectedRoute role="lifesaver">

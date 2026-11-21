@@ -1,22 +1,29 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle, Clock, BookOpen, Download, LogOut, Bell, CreditCard } from 'lucide-react'
+import { apiGet } from '../../../lib/api'
+import PasswordCard from '../../../components/PasswordCard'
 
 export default function LSProfile() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [data, setData] = useState(null)
+
+  useEffect(() => { apiGet('ls_data').then(setData).catch(() => {}) }, [])
 
   function handleLogout() {
     logout()
     navigate('/')
   }
 
+  const submitted = data?.totalSubmitted ?? 0
+  const rate = submitted ? Math.round(((data?.totalAccepted ?? 0) / submitted) * 100) : 0
   const stats = [
-    { label: 'Total Earned', value: '$330.00' },
-    { label: 'Referrals Submitted', value: '12' },
-    { label: 'Acceptance Rate', value: '67%' },
-    { label: 'STARS Balance', value: '47' },
+    { label: 'Total Earned', value: data ? `$${(data.totalEarned ?? 0).toFixed(2)}` : '...' },
+    { label: 'Referrals Submitted', value: data ? submitted : '...' },
+    { label: 'Acceptance Rate', value: data ? `${rate}%` : '...' },
+    { label: 'Qualifying Leads (2+ stars)', value: data ? (data.qualifiedLeads ?? 0) : '...' },
   ]
 
   return (
@@ -34,7 +41,7 @@ export default function LSProfile() {
           <p className="font-bold text-lg">{user?.name}</p>
           <p className="text-gray-400 text-sm">{user?.handle}</p>
           <span className="inline-block mt-1.5 bg-warning/20 border border-warning/30 text-warning text-xs font-bold px-2 py-0.5 rounded-full">
-            {user?.tier || 'Star 1'}
+            {user?.tier === 'Pending Activation' ? 'Pending Activation' : (data?.isSupreme ? 'Supreme' : (data?.level || 'Supporter'))}
           </span>
         </div>
       </div>
@@ -42,8 +49,8 @@ export default function LSProfile() {
       {/* Assigned agent */}
       <div className="bg-surface border border-gray-800 rounded-xl p-5">
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Assigned Agent/Broker</p>
-        <p className="font-semibold">Marcus Rivera</p>
-        <p className="text-gray-400 text-sm">Rivera Insurance Group</p>
+        <p className="font-semibold">{user?.agentEmail || 'Being assigned'}</p>
+        {!user?.agentEmail && <p className="text-gray-400 text-sm">Your agent will be assigned after approval.</p>}
       </div>
 
       {/* IC + Training status */}
@@ -92,6 +99,8 @@ export default function LSProfile() {
           </button>
         ))}
       </div>
+
+      <PasswordCard />
 
       <button onClick={handleLogout} className="flex items-center justify-center gap-2 w-full border border-gray-700 text-gray-400 py-4 rounded-xl hover:border-gray-500 hover:text-white transition-colors">
         <LogOut size={16} /> Sign Out

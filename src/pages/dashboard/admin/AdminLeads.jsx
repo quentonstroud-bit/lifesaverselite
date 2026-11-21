@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
+import { apiGet, apiPost } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const STATUS_COLORS = {
   PENDING:  'bg-warning/20 text-warning',
@@ -45,9 +45,7 @@ export default function AdminLeads() {
   const [overrideReason, setOverrideReason] = useState('')
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=admin_leads`)
-      .then(r => r.json())
+        apiGet('admin_leads')
       .then(d => { setLeads(d.leads || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
@@ -63,17 +61,10 @@ export default function AdminLeads() {
   async function saveRating() {
     const stars  = override ? parseInt(override) : computedStars
     if (!stars || !ratingModal) return
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ formType: 'lead_rating', leadId: ratingModal.id, stars, override: !!override, overrideReason })
-        })
-        setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))
-      } catch {}
-    }
+    try {
+      await apiPost('lead_rating', { leadId: ratingModal.id, stars })
+      setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))
+    } catch {}
     setRatingModal(null)
     setSelections({})
     setOverride('')

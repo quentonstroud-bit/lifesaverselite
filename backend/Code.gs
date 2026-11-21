@@ -33,7 +33,7 @@ var LEVELS = [
   { name: 'Sentinel',   min: 100, bonus: 250 }
 ]
 var SUPREME_MIN   = 500   // lifetime qualifying leads needed to be eligible for Supreme
-var SUPREME_BONUS = 500   // ASSUMPTION: paid to each month's Supreme. Confirm with owner.
+var SUPREME_BONUS = 500   // One-time per LifeSaver, ever (owner decision).
 
 // ----------------------------------------------
 // PRICING, SCORING AND LEVELS (pure functions)
@@ -135,6 +135,8 @@ function jsonOut(obj) {
 // ----------------------------------------------
 function doGet(e) {
   var query = e && e.parameter && e.parameter.query
+  // Health check only. Every data/auth query needs the shared SERVER_KEY (browsers never call this directly).
+  if (query && !serverKeyOk(e.parameter.key)) return respond(403, 'Forbidden')
   if (query === 'dashboard_stats')    return getDashboardStats()
   if (query === 'validate_login')     return validateLogin(e.parameter)
   if (query === 'ls_data')            return getLSData(e.parameter)
@@ -147,6 +149,9 @@ function doGet(e) {
   if (query === 'admin_leads')        return getAdminLeads()
   if (query === 'admin_revenue')      return getAdminRevenue()
   if (query === 'lead_quote')         return getLeadQuote(e.parameter)
+  if (query === 'auth_lookup')        return jsonOut({ status: 200, user: lookupUser(e.parameter.email) })
+  if (query === 'auth_credential')    return authGetCredential(e.parameter)
+  if (query === 'admin_payout_report') return getPayoutReport(e.parameter)
   return ContentService
     .createTextOutput(JSON.stringify({ status: 200, message: 'LifeSavers Elite API is live.' }))
     .setMimeType(ContentService.MimeType.JSON)
@@ -910,6 +915,7 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents)
     var type = data.formType
+    if (!serverKeyOk(data.serverKey)) return respond(403, 'Forbidden')
 
     if (type === 'application')        return handleApplication(data)
     if (type === 'agent_enrollment')   return handleAgentEnrollment(data)
@@ -919,6 +925,11 @@ function doPost(e) {
     if (type === 'lead_decline')       return handleLeadDecline(data)
     if (type === 'claim_from_pool')    return handleFreeUnlock(data)
     if (type === 'payment_complete')   return handlePaymentComplete(data)
+    if (type === 'auth_set_credential') return authSetCredential(data)
+    if (type === 'auth_throttle')      return authThrottle(data)
+    if (type === 'auth_consume')       return authConsume(data)
+    if (type === 'send_magic_link')    return sendMagicLink(data)
+    if (type === 'admin_mark_paid')    return handleMarkPaid(data)
     if (type === 'approve_lifesaver')  return respond(200, 'Noted - add to Users sheet manually to activate')
 
     return respond(400, 'Unknown form type: ' + type)
@@ -959,8 +970,7 @@ function handleAgentEnrollment(d) {
   sheet.appendRow([
     ts, d.name, d.agency, d.email, d.phone,
     d.license, d.states, d.years, d.lines,
-    d.payoutStructure, d.hearAbout, d.paymentMethod,
-    d.tempPassword || ''
+    d.payoutStructure, d.hearAbout, d.paymentMethod
   ])
 
   sendEmail(ADMIN_EMAIL, 'New Agent/Broker Application - ' + d.agency, agentAppEmailBody(d))
@@ -1007,11 +1017,7 @@ function handleReferralSubmit(d) {
 // LEAD RATING
 // ----------------------------------------------
 function handleLeadRating(d) {
-  // Ratings are now computed from the referral form. Manual override is disabled until
-  // admin authentication exists (the old endpoint let anyone change a lead's price).
-  var expected = PropertiesService.getScriptProperties().getProperty('ADMIN_API_KEY')
-  if (!expected || String(d.adminKey || '') !== expected) return respond(403, 'Not authorized')
-
+  // Reached only through the authenticated gateway, which restricts this action to admins.
   var stars = parseInt(d.stars, 10)
   if (!(stars >= 1 && stars <= 5)) return respond(400, 'Stars must be 1-5')
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
@@ -1259,20 +1265,229 @@ function getMonthlySupreme(leadsData, monthDate) {
   return best
 }
 
-// Optional: attach a monthly time trigger (1st of month) to bank the Supreme bonus for the month just ended.
-function awardSupremeMonthly() {
+// True if this LifeSaver already received the Supreme bonus in any month (one-time per LifeSaver, ever).
+function hasSupremeBonus(txData, lsId) {
+  for (var t = 1; t < txData.length; t++) {
+    if (txData[t][3] === 'LEVEL_BONUS' && String(txData[t][5]) === String(lsId) && String(txData[t][6]).indexOf('SUPREME:') === 0) return true
+  }
+  return false
+}
+
+// Monthly job (installMonthlyTriggers schedules it for the 1st). Banks the one-time Supreme bonus for the
+// month just ended. The title still rotates monthly, but a LifeSaver is only ever paid the bonus once.
+function awardSupremeMonthly(forDate) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
-  var prev = new Date(); prev.setDate(1); prev.setMonth(prev.getMonth() - 1)
+  var prev = forDate ? new Date(forDate) : new Date()
+  if (!forDate) { prev.setDate(1); prev.setMonth(prev.getMonth() - 1) }
   var leadsData = ss.getSheetByName('Leads').getDataRange().getValues()
   var sup = getMonthlySupreme(leadsData, prev)
-  if (!sup || sup.count === 0) return
+  if (!sup || sup.count === 0) return null
   var txSheet = ss.getSheetByName('Transactions')
-  var source = 'SUPREME:' + prev.getFullYear() + '-' + ('0' + (prev.getMonth() + 1)).slice(-2)
   var txData = txSheet.getDataRange().getValues()
-  for (var t = 1; t < txData.length; t++) {
-    if (txData[t][3] === 'LEVEL_BONUS' && String(txData[t][6]) === source) return
-  }
+  if (hasSupremeBonus(txData, sup.lsId)) return null
+  var source = 'SUPREME:' + prev.getFullYear() + '-' + ('0' + (prev.getMonth() + 1)).slice(-2)
   txSheet.appendRow([new Date().toISOString(), '', '', 'LEVEL_BONUS', SUPREME_BONUS, sup.lsId, source])
+  return sup
+}
+
+// ----------------------------------------------
+// AUTH SUPPORT (called only by the Vercel auth functions, with SERVER_KEY)
+// Passwords are hashed in Vercel (scrypt). Apps Script only stores the hash.
+// ----------------------------------------------
+function adminEmails() {
+  var raw = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || 'reverendqs@gmail.com'
+  return raw.toLowerCase().split(',').map(function (x) { return x.trim() }).filter(Boolean)
+}
+
+// Returns a user object or null. Same account rules as the old validate_login, plus admins.
+function lookupUser(email) {
+  email = String(email || '').toLowerCase().trim()
+  if (!email) return null
+  if (adminEmails().indexOf(email) !== -1) {
+    return { role: 'admin', id: 'adm1', name: 'Quenton Stroud', email: email }
+  }
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+
+  var agSheet = ss.getSheetByName('Agent_Broker_Applications')
+  if (agSheet) {
+    var agData = agSheet.getDataRange().getValues()
+    for (var i = 1; i < agData.length; i++) {
+      if (String(agData[i][3] || '').toLowerCase().trim() === email) {
+        return { role: 'agent', id: 'ag-' + i, name: agData[i][1], agency: agData[i][2], email: agData[i][3], phone: agData[i][4] }
+      }
+    }
+  }
+  var usersSheet = ss.getSheetByName('Users')
+  if (usersSheet) {
+    var u = usersSheet.getDataRange().getValues()
+    for (var j = 1; j < u.length; j++) {
+      if (String(u[j][3] || '').toLowerCase().trim() === email && u[j][2] === 'lifesaver') {
+        return { role: 'lifesaver', id: u[j][0], name: u[j][1], email: u[j][3], handle: u[j][4], tier: u[j][5], agentEmail: u[j][6] }
+      }
+    }
+  }
+  var lsSheet = ss.getSheetByName('LifeSaver_Applications')
+  if (lsSheet) {
+    var l = lsSheet.getDataRange().getValues()
+    for (var k = 1; k < l.length; k++) {
+      if (String(l[k][2] || '').toLowerCase().trim() === email) {
+        return { role: 'lifesaver', id: 'ls-' + k, name: l[k][1], email: l[k][2], phone: l[k][3], handle: '', tier: 'Pending Activation', agentEmail: '' }
+      }
+    }
+  }
+  return null
+}
+
+function credentialsSheet(ss) {
+  var sh = ss.getSheetByName('Credentials')
+  if (!sh) { sh = ss.insertSheet('Credentials'); sh.appendRow(['Email', 'PasswordHash', 'UpdatedAt']) }
+  return sh
+}
+
+function authGetCredential(params) {
+  var email = String(params.email || '').toLowerCase().trim()
+  var sh = credentialsSheet(SpreadsheetApp.openById(SPREADSHEET_ID))
+  var rows = sh.getDataRange().getValues()
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).toLowerCase().trim() === email) return jsonOut({ found: true, hash: String(rows[i][1]) })
+  }
+  return jsonOut({ found: false })
+}
+
+function authSetCredential(d) {
+  var email = String(d.email || '').toLowerCase().trim()
+  if (!email || !d.hash) return respond(400, 'Bad request')
+  if (!lookupUser(email)) return respond(404, 'No account')
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    var sh = credentialsSheet(SpreadsheetApp.openById(SPREADSHEET_ID))
+    var rows = sh.getDataRange().getValues()
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]).toLowerCase().trim() === email) {
+        sh.getRange(i + 1, 2).setValue(String(d.hash)); sh.getRange(i + 1, 3).setValue(new Date().toISOString())
+        return respond(200, 'Password updated')
+      }
+    }
+    sh.appendRow([email, String(d.hash), new Date().toISOString()])
+    return respond(200, 'Password set')
+  } finally { lock.releaseLock() }
+}
+
+// Sliding counter in the script cache. Returns { allowed } and counts this attempt.
+function authThrottle(d) {
+  var cache = CacheService.getScriptCache()
+  var key = 'thr:' + String(d.key || '')
+  var lock = LockService.getScriptLock(); lock.waitLock(10000)
+  try {
+    var n = parseInt(cache.get(key) || '0', 10)
+    if (n >= (Number(d.limit) || 5)) return jsonOut({ allowed: false })
+    cache.put(key, String(n + 1), Math.min(21600, Number(d.windowSec) || 900))
+    return jsonOut({ allowed: true })
+  } finally { lock.releaseLock() }
+}
+
+// Single-use token ids. First call for a jti returns ok:true, later calls ok:false.
+function authConsume(d) {
+  var cache = CacheService.getScriptCache()
+  var key = 'jti:' + String(d.jti || '')
+  if (!d.jti) return jsonOut({ ok: false })
+  var lock = LockService.getScriptLock(); lock.waitLock(10000)
+  try {
+    if (cache.get(key)) return jsonOut({ ok: false })
+    cache.put(key, '1', 21600)
+    return jsonOut({ ok: true })
+  } finally { lock.releaseLock() }
+}
+
+function sendMagicLink(d) {
+  var email = String(d.email || '').toLowerCase().trim()
+  if (!lookupUser(email)) return respond(404, 'No account')
+  var link = String(d.link || '')
+  if (link.indexOf('https://') !== 0) return respond(400, 'Bad link')
+  sendEmail(email, 'Your LifeSavers Elite sign-in link',
+    '<h2 style="color:#fff;">Sign in to LifeSavers Elite</h2>'
+    + '<p>Click the button to sign in. This link works once and expires in 15 minutes.</p>'
+    + '<div style="text-align:center;margin:32px 0;"><a href="' + escHtml(link) + '" style="background:#C01428;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;">Sign In</a></div>'
+    + '<p style="color:#9ca3af;font-size:12px;">If you did not ask for this, you can ignore this email. Nobody can sign in without it.</p>')
+  return respond(200, 'Sent')
+}
+
+// ----------------------------------------------
+// PAYOUT REPORT FOR PAYROLL
+// Owed = LIFESAVER_PAYOUT + LEVEL_BONUS earned up to `through`, minus everything already marked PAYOUT_PAID.
+// ----------------------------------------------
+function buildPayoutReport(ss, through) {
+  var cutoff = through ? new Date(through) : new Date()
+  var txData = ss.getSheetByName('Transactions').getDataRange().getValues()
+  var by = {}
+  function slot(id) { return by[id] || (by[id] = { lsId: id, leads: 0, commissions: 0, bonuses: 0, paid: 0 }) }
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i], type = tx[3], id = String(tx[5] || '')
+    if (!id) continue
+    var amt = parseFloat(tx[4]) || 0
+    if (type === 'PAYOUT_PAID') { slot(id).paid += amt; continue }
+    if (type !== 'LIFESAVER_PAYOUT' && type !== 'LEVEL_BONUS') continue
+    if (new Date(tx[0]) > cutoff) continue
+    if (type === 'LIFESAVER_PAYOUT') { slot(id).leads++; slot(id).commissions += amt }
+    else slot(id).bonuses += amt
+  }
+  var people = {}
+  var users = ss.getSheetByName('Users') ? ss.getSheetByName('Users').getDataRange().getValues() : []
+  for (var u = 1; u < users.length; u++) people[String(users[u][0])] = { name: users[u][1], email: users[u][3], handle: users[u][4] }
+  var rows = [], total = 0
+  for (var k in by) {
+    var r = by[k], p = people[k] || {}
+    r.commissions = round2(r.commissions); r.bonuses = round2(r.bonuses); r.paid = round2(r.paid)
+    r.due = Math.max(0, round2(r.commissions + r.bonuses - r.paid))
+    r.name = p.name || ''; r.email = p.email || ''; r.handle = p.handle || ''
+    if (r.commissions || r.bonuses || r.paid) { rows.push(r); total += r.due }
+  }
+  rows.sort(function (a, b) { return b.due - a.due })
+  return { through: cutoff.toISOString(), rows: rows, totalDue: round2(total) }
+}
+
+function getPayoutReport(params) {
+  var rep = buildPayoutReport(SpreadsheetApp.openById(SPREADSHEET_ID), params.through)
+  rep.status = 200
+  return jsonOut(rep)
+}
+
+// Marks everything currently due (up to `through`) as paid. Pass expectedTotal from the report the admin
+// reviewed: if the numbers moved since, nothing is recorded. Idempotent per batchId.
+function handleMarkPaid(d) {
+  if (!d.batchId || !/^[A-Za-z0-9_-]{6,60}$/.test(String(d.batchId))) return respond(400, 'Bad batch id')
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+    var txSheet = ss.getSheetByName('Transactions')
+    var tx = txSheet.getDataRange().getValues()
+    for (var i = 1; i < tx.length; i++) {
+      if (tx[i][3] === 'PAYOUT_PAID' && String(tx[i][6]).indexOf('BATCH:' + d.batchId + '|') === 0) return respond(200, 'Already marked')
+    }
+    var rep = buildPayoutReport(ss, d.through)
+    var only = d.lsIds && d.lsIds.length ? d.lsIds.map(String) : null
+    var rows = rep.rows.filter(function (r) { return r.due > 0.004 && (!only || only.indexOf(String(r.lsId)) !== -1) })
+    var total = round2(rows.reduce(function (s, r) { return s + r.due }, 0))
+    if (Math.abs(total - (Number(d.expectedTotal) || 0)) > 0.009) {
+      return jsonOut({ status: 409, message: 'Totals changed since you opened the report', totalDue: total })
+    }
+    var ts = new Date().toISOString()
+    rows.forEach(function (r) {
+      txSheet.appendRow([ts, '', '', 'PAYOUT_PAID', r.due, r.lsId, 'BATCH:' + d.batchId + '|through:' + rep.through])
+    })
+    return jsonOut({ status: 200, message: 'Marked paid', count: rows.length, total: total })
+  } finally { lock.releaseLock() }
+}
+
+// Run ONCE from the Apps Script editor (select installMonthlyTriggers > Run) to schedule the jobs.
+function installMonthlyTriggers() {
+  var existing = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() })
+  if (existing.indexOf('awardSupremeMonthly') === -1) {
+    ScriptApp.newTrigger('awardSupremeMonthly').timeBased().onMonthDay(1).atHour(6).create()
+  }
+  if (existing.indexOf('autoDeclineExpiredLeads') === -1) {
+    ScriptApp.newTrigger('autoDeclineExpiredLeads').timeBased().everyHours(1).create()
+  }
 }
 
 // ----------------------------------------------
@@ -1282,10 +1497,14 @@ function handleLeadDecline(d) {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
   var data       = leadsSheet.getDataRange().getValues()
+  var agentEmail = String(d.agentEmail || '').toLowerCase().trim()
 
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === d.leadId) {
       var row = data[i]
+      if (row[16] !== 'PENDING') return respond(409, 'Lead is not pending')
+      var assigned = String(getAgentEmailForLifeSaver(row[14]) || '').toLowerCase().trim()
+      if (!agentEmail || assigned !== agentEmail) return respond(403, 'Not your lead')
       leadsSheet.getRange(i + 1, 17).setValue('POOL')
       leadsSheet.getRange(i + 1, 20).setValue('Declined by assigned Agent')
 

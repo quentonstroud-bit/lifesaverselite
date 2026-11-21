@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { DollarSign } from 'lucide-react'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AgentLifeSavers() {
   const { user }     = useAuth()
@@ -10,9 +10,8 @@ export default function AgentLifeSavers() {
   const [loading,    setLoading]    = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=agent_lifesavers&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('agent_lifesavers')
       .then(d => { setLifesavers(d.lifesavers || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user?.email])

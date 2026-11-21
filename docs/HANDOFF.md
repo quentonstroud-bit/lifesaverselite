@@ -36,7 +36,9 @@ Stripe: payments (NOT yet wired into code - see Section 9)
 ## 3. Repo Map
 
 ```
-backend/Code.gs                  entire backend (~1100 lines)
+backend/Code.gs                  entire backend (paste into Apps Script; ~1900 lines)
+api/                             Vercel serverless functions: gw (gateway), auth/*, checkout, webhook, _lib/*
+src/lib/                         api.js (gateway client), purchase.js, leadScore.js (live quality meter; mirrors Code.gs scoring)
 src/main.jsx, App.jsx            entry + routes + ProtectedRoute
 src/context/AuthContext.jsx      login, session (localStorage key `lse_user`), IC/training flags
 src/components/                  Nav, Footer, BottomNav, StarRating, ICAgreementModal
@@ -67,13 +69,26 @@ docs/HANDOFF.md                  this file
 
 Post-application success redirects to Training Modules (not Cal.com).
 
-## 5. Auth Model
+## 5. Auth Model (rebuilt 2026-11-21)
 
-- **Admin:** credentials are hardcoded in `src/context/AuthContext.jsx` (email `reverendqs@gmail.com`). **See Security, Section 8.**
-- **LifeSaver / Agent:** email-only lookup. Frontend calls `GET ?query=validate_login&email=...`; backend matches the `Users` sheet and returns `{status, role, ...}`. No password.
-- Session is stored in `localStorage['lse_user']`. `icSigned` and `trainingComplete` are client-side flags only (reset to `false` on every login).
-- New agents are auto-logged-in after enrollment via `loginDirect`.
-- Approving a LifeSaver is **manual**: add the row to the `Users` sheet (`approve_lifesaver` only returns a note).
+**Sign-in = email magic link OR password.** Both end in the same thing: a signed, HttpOnly, Secure, SameSite=Lax session cookie (`lse_session`, 7 days; admin 12 hours). Nothing secret lives in the browser bundle any more.
+
+- **Magic link:** `/login` -> `POST /api/auth/request-link` emails a single-use link (15 min) via Apps Script. The link opens `/auth/verify?token=...`; the user clicks **Sign In** (a deliberate click, so email scanners that pre-fetch links cannot burn the token) -> `POST /api/auth/verify` consumes the token and sets the cookie. The endpoint answers identically whether or not the email has an account.
+- **Password (optional):** set under Settings/Profile (`POST /api/auth/set-password`, 10+ chars). Stored only as a salted **scrypt** hash in the `Credentials` sheet (auto-created). `POST /api/auth/login` throttles 8 tries / 15 min per email (30 per IP) and gives one generic error.
+- **Who can sign in:** unchanged rules, now with proof of email ownership: admin = emails in Script Property `ADMIN_EMAILS` (default `reverendqs@gmail.com`); agents = anyone in `Agent_Broker_Applications`; LifeSavers = `Users` sheet (approved) or `LifeSaver_Applications` (pending, `Pending Activation`, training only - they cannot submit referrals until approved).
+- **No more hardcoded admin password.** Admin signs in by magic link to the admin email (and may set a password in Settings).
+- **After applying/enrolling,** the applicant is emailed a sign-in link automatically (replaces the old generated plaintext password, which was also being stored in the sheet - removed).
+- Training/IC-agreement completion flags are a per-email convenience in the browser's localStorage, not a security control.
+
+### The gateway (the key security change)
+The browser **never calls Google Apps Script directly any more.** Every data call goes `browser -> POST /api/gw -> Apps Script`, and every Apps Script endpoint now requires the shared `SERVER_KEY` (direct calls get 403). `api/gw.js`:
+- checks the session cookie and re-reads the user's role from the Sheet on every call;
+- has an allow-list of GET queries and POST form types, each tied to a role (agent / lifesaver / admin; only the two application forms are public, rate-limited per IP);
+- **injects identity from the session** (email, LifeSaver id/handle) and forwards only whitelisted fields, so a caller cannot read someone else's data, submit as another LifeSaver, or set their own stars/price;
+- enforces same-origin + JSON for state-changing calls.
+`payment_complete` is deliberately NOT reachable through the gateway (Stripe webhook only).
+
+Local dev: the `/api` functions need `vercel dev` (plain `npm run dev` serves only the frontend).
 
 ## 6. Backend Contract (`backend/Code.gs`)
 
@@ -121,7 +136,8 @@ Base URL = Apps Script Web App `/exec` URL, supplied to the frontend as `VITE_WE
 
 | Item | Where | Notes |
 |---|---|---|
-| `VITE_WEBAPP_URL` | env var read by every page and AuthContext | Set in Vercel (Production + Preview) and a local `.env` (git-ignored). **If empty, the app shows "Backend not configured" and forms fail.** Replaces the old `PASTE_YOUR_WEBAPP_URL_HERE` placeholders (none remain in `src/`). |
+| `WEBAPP_URL` | **server-side** env var (Vercel) used by `/api/*` | The Apps Script `/exec` URL. The browser no longer needs it, so `VITE_WEBAPP_URL` is obsolete. |
+| `SERVER_KEY`, `SESSION_SECRET`, `SITE_URL`, `STRIPE_*` | Vercel env vars (server-side) | `SERVER_KEY` must match the Apps Script property. `SESSION_SECRET` = long random string (rotating it signs everyone out). See `.env.example`. |
 | `SPREADSHEET_ID` | `backend/Code.gs` | Currently set to the live sheet. |
 | Apps Script deploy | Editor: Deploy > Web App, Execute as **Me**, Access **Anyone** | After editing Code.gs you must **re-deploy a new version** (Manage deployments > edit > New version) or the live URL keeps serving old code. |
 | Frontend deploy | Vercel from this repo; `npm run build` -> `dist/` | `vercel.json` handles SPA routing. |
@@ -130,8 +146,8 @@ Local dev:
 
 ```bash
 npm install
-echo "VITE_WEBAPP_URL=<your /exec url>" > .env
-npm run dev        # http://localhost:5173
+cp .env.example .env   # fill in server-side values
+npx vercel dev     # runs the frontend AND /api functions
 npm run build
 ```
 
@@ -140,13 +156,16 @@ Gotchas learned the hard way (see git history):
 - **CORS:** POSTs to Apps Script must avoid a preflight (`1c28864`). Keep the existing fetch pattern when adding new calls; don't add custom headers.
 - Apps Script redeploys can change nothing if you only "Save" - always deploy a new version.
 
-## 8. Security - Action Items
+## 8. Security
 
-1. **Hardcoded admin password in `src/context/AuthContext.jsx` ships in the public JS bundle.** Anyone can read it. Rotate it now (it is also in git history), then move admin auth server-side (e.g. check against an Apps Script property with a signed session token) or at minimum remove the literal from the client.
-2. **GET endpoints are unauthenticated.** `admin_*`, `agent_*`, and `ls_data` return data to anyone who knows the URL and parameters. Add a token check in `doGet` before launch.
-3. `validate_login` is email-only; anyone knowing an email can log in as that user.
-4. `SPREADSHEET_ID` and `ADMIN_EMAIL` are in the repo - fine for an ID, but treat the sheet's sharing settings as the real protection.
-5. Never commit Stripe secret keys. `STRIPE_SECRET_KEY` belongs only in a server-side store (Apps Script Script Properties), never `src/`.
+**Fixed 2026-11-21:** hardcoded admin password removed; email-only login replaced by magic link/password; Apps Script endpoints locked behind `SERVER_KEY` and an authenticated, role-checked, identity-injecting gateway; plaintext agent passwords no longer generated or stored; lead decline restricted to the assigned agent; prices/payouts/ratings computed server-side.
+
+**Still to do:**
+1. **Rotate the old admin password** wherever else it was used - it is in git history and in earlier public bundles.
+2. Deploy order matters: set `SERVER_KEY` + `SESSION_SECRET` + `WEBAPP_URL` in Vercel and `SERVER_KEY` in Apps Script BEFORE pasting the new `Code.gs`, or the live site will 403.
+3. Magic-link email is sent by Apps Script `MailApp` (about 100 emails/day on a free Gmail, 1,500 on Workspace). Move to a transactional email service (Resend/Postmark) if volume grows.
+4. Treat the Apps Script URL + `SERVER_KEY` as secrets; keep the Sheet's sharing locked down.
+5. Never commit Stripe keys. They belong only in Vercel env vars.
 
 ## 9. Status
 
@@ -223,9 +242,9 @@ Cash bonuses are banked into the same weekly payout. Non-cash perks are fulfille
 - **What counts:** leads a LifeSaver has submitted that were auto-rated **2 stars or higher** (quantity of qualifying leads). 1-star leads do not count.
 - **Cash bonuses** (Steward $50, Specialist $100, Sentinel $250) are one-time, written to the `Transactions` ledger as `LEVEL_BONUS` the moment the threshold is crossed, and paid in the weekly payout.
 - **Supreme** is **monthly and can change hands**: among LifeSavers with 500+ lifetime qualifying leads, whoever submitted the most qualifying leads in the calendar month is that month's Supreme (`getMonthlySupreme`). The LifeSaver home screen shows "Supreme" for the current holder.
-- **ASSUMPTION - confirm:** the $500 Supreme bonus is paid to each month's Supreme. It is only banked if you create a monthly time trigger for `awardSupremeMonthly` (runs on the 1st, idempotent). Nothing is paid until that trigger exists.
+- **Supreme bonus is one-time per LifeSaver, ever (decided).** `awardSupremeMonthly` runs on the 1st for the month just ended, banks $500 (`LEVEL_BONUS`, source `SUPREME:YYYY-MM`) only if that month's Supreme has never received it, and is idempotent. The title still rotates every month; a repeat holder simply is not paid again (it does not pass to the runner-up). Run `installMonthlyTriggers()` once in the Apps Script editor to schedule it (and the hourly auto-decline).
 - Non-cash perks (swag, plaques, gift boxes, features) are fulfilled manually by the operator.
-- Old tier names (`Star 1`...`Star 5 Elite`), the badge "Reach Star 5 Elite tier", and the landing page copy "Five earning tiers" still exist and conflict with this model. Replace them.
+- The landing page's 1-5 star cards are the star rating system and stay. Level names are **revealed during onboarding** (Training, after the Compensation module) and are not shown publicly. The `LSStars.jsx` badge "Reach Star 5 Elite tier" still uses the old tier name and should be reworded.
 
 ### How purchasing works in code
 1. Agent clicks **Buy** on a lead in Leads (assigned LifeSavers) or Pool -> browser calls `POST /api/checkout` with only `{ leadId, agentEmail }`.
@@ -238,18 +257,21 @@ Cash bonuses are banked into the same weekly payout. Non-cash perks are fulfille
 Why contact details are emailed rather than shown in-app: login is email-only (Section 8), so an in-app "show contact" endpoint would let anyone who knows an agent's email read customer phone numbers. Add one only after real authentication exists.
 
 ### Setup required before this works (none of it is done yet)
-**Apps Script** (Project Settings > Script properties): `SERVER_KEY` = a long random string. Optional `ADMIN_API_KEY` for the manual rating override. Then paste the new `Code.gs`, **Deploy > New version**. Optionally add a monthly trigger for `awardSupremeMonthly`.
+**Apps Script** (Project Settings > Script properties): `SERVER_KEY` = a long random string (same value as Vercel). Optional `ADMIN_EMAILS` (comma list; defaults to `reverendqs@gmail.com`). Then paste the new `Code.gs`, **Deploy > New version**, and run `installMonthlyTriggers()` once.
 **Stripe** (start in Test mode): copy the secret key; create a webhook endpoint `https://<your-domain>/api/webhook` for event `checkout.session.completed` and copy its signing secret.
-**Vercel** env vars (server-side, no `VITE_` prefix): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SERVER_KEY` (same value as Apps Script), `SITE_URL` (e.g. `https://app.lifesaverselite.com`); `VITE_WEBAPP_URL` as before. Redeploy. See `.env.example`. **Never paste Stripe keys into chat, code, or git.**
+**Vercel** env vars (server-side, no `VITE_` prefix): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SERVER_KEY` (same value as Apps Script), `SESSION_SECRET` (new long random string), `SITE_URL` (e.g. `https://app.lifesaverselite.com`), `WEBAPP_URL` (the Apps Script `/exec` URL). Redeploy. See `.env.example`. **Never paste Stripe keys into chat, code, or git.**
 Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` sheet for three rows.
 
 ### Domain plan (decided)
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
 
+### Payroll report (Admin > Revenue > LifeSaver Payroll)
+Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cutoff, minus rows already marked `PAYOUT_PAID`. The report lists who is owed what, downloads as **CSV** (formula-injection safe), and **Mark all paid** records the batch. Marking is guarded: it refuses if totals changed since you opened the report (409), is idempotent per batch id, and requires a confirm dialog. Workflow: open report -> Download CSV -> send the money -> Mark all paid. Payment method per LifeSaver is not stored yet (add a payout-method field to the application/profile when you choose a payout rail).
+
 ### Remaining gaps / known limits
-- No automated weekly payout run yet: earnings are banked in the ledger (`LIFESAVER_PAYOUT`, `LEVEL_BONUS`) and the LifeSaver dashboard shows them. A Sunday payout report/CSV for the admin is the next piece; Stripe Connect automation is a later phase.
-- The Admin "override star rating" action now returns 403 (the old endpoint let anyone change a lead's price). Re-enable it after admin authentication is built.
-- Admin password hardcoded in the client bundle, unauthenticated GET endpoints and email-only login remain (Section 8). These matter more now that real money moves.
+- Payouts are a manual weekly run from the payroll report. Stripe Connect automation is a later phase.
+- The Admin "override star rating" action works again, but only through the authenticated admin gateway.
+- **Agent Agreement text still says "$2.00 per accepted lead"** (`AgentEnroll.jsx`, three places) and the Agent Settings "top up balance" screen predates the per-lead cart. These are contract/pricing terms: the owner must supply the final wording before real money is charged.
 - The payout recorded for a lead is `max(0, lead price - Stripe fee)`; on a $5 (2-star) lead the LifeSaver nets about $4.41.
 
 ## 10. Known Doc Drift (README.md)

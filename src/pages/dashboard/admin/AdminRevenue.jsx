@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { TrendingUp, Calendar } from 'lucide-react'
+import AdminPayouts from './AdminPayouts'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AdminRevenue() {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=admin_revenue`)
-      .then(r => r.json())
+        apiGet('admin_revenue')
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
@@ -27,7 +26,7 @@ export default function AdminRevenue() {
     <div className="flex flex-col gap-5 pb-4">
       <div className="pt-2">
         <h1 className="text-2xl font-bold">Revenue</h1>
-        <p className="text-gray-400 text-sm mt-1">$2.00 per accepted lead</p>
+        <p className="text-gray-400 text-sm mt-1">$5.00 service fee per paid lead</p>
       </div>
 
       {/* Summary cards */}
@@ -50,6 +49,9 @@ export default function AdminRevenue() {
         </div>
         <p className="text-warning font-bold">{loading ? '…' : `$${pace.toFixed(2)}`}</p>
       </div>
+
+      {/* Weekly LifeSaver payroll */}
+      <AdminPayouts />
 
       {/* By Agent */}
       <div>

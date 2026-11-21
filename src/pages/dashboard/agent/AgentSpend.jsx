@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AgentSpend() {
   const { user }   = useAuth()
@@ -9,9 +9,8 @@ export default function AgentSpend() {
   const [loading,  setLoading] = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=agent_spend&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('agent_spend')
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user?.email])
@@ -42,7 +41,7 @@ export default function AgentSpend() {
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Breakdown</p>
           <div className="flex flex-col gap-3">
             {[
-              { label: 'LSE Service Fees',   value: `$${totalLSEFees.toFixed(2)}`,  note: `${acceptedCount} accepted lead${acceptedCount !== 1 ? 's' : ''} × $2.00` },
+              { label: 'LSE Service Fees',   value: `$${totalLSEFees.toFixed(2)}`,  note: `${acceptedCount} purchased lead${acceptedCount !== 1 ? 's' : ''} × $5.00 service fee` },
               { label: 'LifeSaver Payouts',  value: `$${totalPayouts.toFixed(2)}`,  note: 'Distributed to your LifeSavers' },
               { label: 'Leads Accepted',     value: String(acceptedCount) },
               { label: 'Avg per Lead',       value: acceptedCount > 0 ? `$${(totalOwed / acceptedCount).toFixed(2)}` : '--' },

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { Trophy, Zap } from 'lucide-react'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const MILESTONES = [
   { stars: 25,  bonus: 5 },
@@ -18,9 +18,8 @@ export default function LSEarnings() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=ls_data&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('ls_data')
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user?.email])

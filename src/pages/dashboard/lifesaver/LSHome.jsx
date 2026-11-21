@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { Phone, Mail, ChevronRight, TrendingUp } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const STATUS_COLORS = {
   ACCEPTED: 'bg-success/20 text-success',
@@ -20,9 +20,8 @@ export default function LSHome() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=ls_data&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('ls_data')
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user?.email])

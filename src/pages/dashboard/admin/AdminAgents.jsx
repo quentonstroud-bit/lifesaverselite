@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { CheckCircle, X, AlertTriangle, ChevronDown } from 'lucide-react'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AdminAgents() {
   const [pending,    setPending]    = useState([])
@@ -10,9 +10,7 @@ export default function AdminAgents() {
   const [openManage, setOpenManage] = useState(null)
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=admin_agents`)
-      .then(r => r.json())
+        apiGet('admin_agents')
       .then(d => {
         setPending(d.pending || [])
         setActive(d.active   || [])

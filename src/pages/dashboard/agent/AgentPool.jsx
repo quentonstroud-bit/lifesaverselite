@@ -3,8 +3,8 @@ import { useAuth } from '../../../context/AuthContext'
 import { Clock, CheckCircle } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
 import { startPurchase, money } from '../../../lib/purchase'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const FILTERS = ['All', 'Life Insurance', 'Health Insurance', 'Final Expense', 'Annuity', 'Medicare', '5-Star Only']
 
@@ -19,9 +19,7 @@ export default function AgentPool() {
   const [error,    setError]    = useState('')
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=pool_leads`)
-      .then(r => r.json())
+        apiGet('pool_leads')
       .then(d => { setPool(d.leads || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
@@ -37,7 +35,7 @@ export default function AgentPool() {
     setError('')
     setBusy(true)
     try {
-      const r = await startPurchase(lead, user?.email)
+      const r = await startPurchase(lead)
       if (r.free) {
         setClaimed(p => [...p, lead.id])
         setClaiming(null)
