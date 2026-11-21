@@ -158,6 +158,58 @@ Gotchas learned the hard way (see git history):
 - `icSigned` / `trainingComplete` are not persisted server-side.
 - No automated tests, no CI.
 
+## 9A. Commerce & Rewards Spec (owner-defined 2026-11-21; NOT yet implemented)
+
+This is the agreed business model. Code must match it. Current code still uses the old
+$2.00 fee and a browser-supplied payout (see "Gaps" below).
+
+### Lead purchase flow
+1. A LifeSaver submits a referral (lead). Admin assigns a **star rating 1-5**.
+2. Each Agent has LifeSavers assigned to them. When a lead arrives, the Agent may buy it via a **shopping cart** (Stripe Checkout) and it then unlocks into their Lead Center.
+3. Charge = **lead price + LSE service fee**. Agent total below.
+
+| Rating | Lead price | LSE fee | Agent pays | Notes |
+|---|---|---|---|---|
+| 1 star | $0 | $0 | $0 | Free unlock, no Stripe charge, LifeSaver earns $0 |
+| 2-5 stars | $5 | $5 | $10 | Same price for every star from 2 up |
+
+4. **LifeSaver earns** the lead price ($5) **minus Stripe processing fees** (LifeSaver bears the Stripe fee). LSE keeps the full $5 fee.
+5. LifeSaver commissions are **banked** in the ledger and paid out **weekly (Sunday)**.
+6. Price is computed **server-side only** from the rating. Never trust an amount from the browser.
+
+Open detail: Stripe fee is ~2.9% + $0.30 of the whole $10 charge (about $0.59), so the LifeSaver would net about $4.41 per lead. Confirm this is the intended calculation (vs. prorating the fee to the $5 lead price only).
+
+### 5-star rating definitions (shown to admins and LifeSavers)
+- **5 - Top quality:** ready to buy in 1-3 months, beneficiaries listed, responsive, wants a specific policy, ready for consultation/quote.
+- **4 - Good:** somewhat engaged, needs nurturing; minor hesitation (policy type unsure or beneficiaries not final).
+- **3 - Medium:** some interest, not committed; needs info/reassurance; comparing options.
+- **2 - Low:** very early research stage, not ready to engage, loosely interested.
+- **1 - Lowest:** may not meet basic qualification (no beneficiaries, unsure about policy, unresponsive); needs heavy follow-up.
+
+### LifeSaver levels (by lead count)
+
+| Level | Leads | One-time cash bonus | Other perks |
+|---|---|---|---|
+| Supporter | 0-24 | none | - |
+| Steward | 25-59 | $50 | Branded swag (T-shirt, bottle, etc.), personalized thank-you note |
+| Specialist | 60-99 | $100 | Priority access to future training/coaching, lead-sharing toolkit |
+| Sentinel | 100+ | $250 | VIP gift box, priority support / 1:1 coaching; featured social post, event mention, possible case study, digital badge + certificate, plaque/trophy |
+| Supreme | 500+ ("there can be only one") | $500 | Luxury gift/experience, mastermind group; featured on all channels/newsletters, interview/testimonial, VIP event access, plaque/custom award, Supreme badge |
+
+Cash bonuses are banked into the same weekly payout. Non-cash perks are fulfilled manually by the operator (track in Admin).
+
+### Open questions (decide before building levels)
+- **What counts toward a level:** leads *submitted*, leads *accepted/purchased*, or leads rated 2+ stars? (Recommend: purchased leads, so levels can't be inflated with junk.)
+- **Supreme "only one":** does it go to the first LifeSaver to hit 500, or the current top LifeSaver (can be taken over)?
+- The existing `Star 1`...`Star 5 Elite` tier names, the `stars * 6` earnings display, and the "Five earning tiers" copy on the landing page conflict with this spec and must be replaced.
+
+### Gaps in current code to fix as part of this work
+- `PLATFORM_FEE = 2.00` in `backend/Code.gs` and `-$2.00` in `AgentLeads.jsx` / `AgentPool.jsx` -> must be $5 and rating-driven.
+- `lead_accept` / `claim_from_pool` store `d.lifesaverPayout` sent by the browser -> compute server-side.
+- `lead_rating` POST has no authorization -> anyone can set stars (and therefore price). Restrict to admin.
+- No Stripe code exists. Plan: Vercel `api/` functions (`checkout`, `webhook` with signature verification). Secret keys only in Vercel env vars; build in Stripe **test mode** first.
+- Weekly payout is a ledger + report first (manual/batched); Stripe Connect automation is a later phase.
+
 ## 10. Known Doc Drift (README.md)
 
 - README mentions `PASTE_*` placeholders; the code now uses `VITE_WEBAPP_URL` and a real `SPREADSHEET_ID`.
