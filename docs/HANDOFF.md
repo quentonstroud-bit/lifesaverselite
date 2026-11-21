@@ -158,13 +158,13 @@ Gotchas learned the hard way (see git history):
 - `icSigned` / `trainingComplete` are not persisted server-side.
 - No automated tests, no CI.
 
-## 9A. Commerce & Rewards Spec (owner-defined 2026-11-21; NOT yet implemented)
+## 9A. Commerce & Rewards (owner-defined 2026-11-21; implemented in code, Stripe in TEST mode only until set up)
 
-This is the agreed business model. Code must match it. Current code still uses the old
-$2.00 fee and a browser-supplied payout (see "Gaps" below).
+This is the agreed business model and the code implements it. Source of truth for the numbers is the
+config block at the top of `backend/Code.gs` (`PRICE_BY_STARS`, `LEAD_FEE`, `STAR_THRESHOLDS`, `LEVELS`).
 
 ### Lead purchase flow
-1. A LifeSaver submits a referral (lead). Admin assigns a **star rating 1-5**.
+1. A LifeSaver submits a referral (lead). The backend **scores the form automatically** into a 1-5 star rating (see Star scoring below). Nobody can set it by hand.
 2. Each Agent has LifeSavers assigned to them. When a lead arrives, the Agent may buy it via a **shopping cart** (Stripe Checkout) and it then unlocks into their Lead Center.
 3. Charge = **lead price + LSE service fee**. Agent total below.
 
@@ -180,7 +180,25 @@ $2.00 fee and a browser-supplied payout (see "Gaps" below).
 5. LifeSaver commissions are **banked** in the ledger and paid out **weekly (Sunday)**.
 6. Price is computed **server-side only** from the rating. Never trust an amount from the browser.
 
-Open detail: Stripe charges ~2.9% + $0.30 on the whole charge (e.g. $0.59 on $10, $1.20 on $35). Confirm whether the LifeSaver bears the fee on the whole charge (nets e.g. $4.41 on a 2-star, $28.80 on a 5-star) or only on the lead price.
+**Decided:** the Stripe processing fee is taken from the **whole charge** (lead price + $5 fee) and borne by the LifeSaver.
+Example 5-star: agent pays $35.00, Stripe fee about $1.20, LSE keeps $5.00, LifeSaver banks $30.00 - $1.20 = $28.80.
+The real fee is read from Stripe after payment; the backend only estimates (2.9% + $0.30) if Stripe cannot be reached.
+
+### Star scoring (computed from the referral form, 0-100 points)
+
+| Field | Points |
+|---|---|
+| Phone (10+ digits) | 10 |
+| Valid email | 5 |
+| City and state | 5 |
+| Beneficiaries | 2+ = 15, 1 = 10, 0 = 0 |
+| Health rating | 7+ = 10, 4-6 = 5 |
+| Smoking | Non-smoker 10, Former 6, Smoker 3 |
+| Policy interest | Specific policy 15, "Other / Not sure" 3 |
+| Purchase timeline | 1-3 months 20, 3-6 months 12, 6-12 months 6, just exploring 0 |
+| Notes | 100+ chars 10, 30+ chars 6, any 3 |
+
+Stars: 85+ = 5, 70+ = 4, 55+ = 3, 45+ = 2, below 45 = 1. **These thresholds are a first draft - tune `STAR_THRESHOLDS` and `scoreLead()` in `Code.gs` after looking at real leads.** Leads submitted before auto-scoring are scored the same way on the fly.
 
 ### 5-star rating definitions (shown to admins and LifeSavers)
 - **5 - Top quality:** ready to buy in 1-3 months, beneficiaries listed, responsive, wants a specific policy, ready for consultation/quote.
@@ -197,21 +215,42 @@ Open detail: Stripe charges ~2.9% + $0.30 on the whole charge (e.g. $0.59 on $10
 | Steward | 25-59 | $50 | Branded swag (T-shirt, bottle, etc.), personalized thank-you note |
 | Specialist | 60-99 | $100 | Priority access to future training/coaching, lead-sharing toolkit |
 | Sentinel | 100+ | $250 | VIP gift box, priority support / 1:1 coaching; featured social post, event mention, possible case study, digital badge + certificate, plaque/trophy |
-| Supreme | 500+ ("there can be only one") | $500 | Luxury gift/experience, mastermind group; featured on all channels/newsletters, interview/testimonial, VIP event access, plaque/custom award, Supreme badge |
+| Supreme | 500+ lifetime; title held by the month's top LifeSaver | $500 (assumed per month held) | Luxury gift/experience, mastermind group; featured on all channels/newsletters, interview/testimonial, VIP event access, plaque/custom award, Supreme badge |
 
 Cash bonuses are banked into the same weekly payout. Non-cash perks are fulfilled manually by the operator (track in Admin).
 
-### Open questions (decide before building levels)
-- **What counts toward a level:** leads *submitted*, leads *accepted/purchased*, or leads rated 2+ stars? (Recommend: purchased leads, so levels can't be inflated with junk.)
-- **Supreme "only one":** does it go to the first LifeSaver to hit 500, or the current top LifeSaver (can be taken over)?
-- The existing `Star 1`...`Star 5 Elite` tier names, the `stars * 6` earnings display, and the "Five earning tiers" copy on the landing page conflict with this spec and must be replaced.
+### Level rules (decided)
+- **What counts:** leads a LifeSaver has submitted that were auto-rated **2 stars or higher** (quantity of qualifying leads). 1-star leads do not count.
+- **Cash bonuses** (Steward $50, Specialist $100, Sentinel $250) are one-time, written to the `Transactions` ledger as `LEVEL_BONUS` the moment the threshold is crossed, and paid in the weekly payout.
+- **Supreme** is **monthly and can change hands**: among LifeSavers with 500+ lifetime qualifying leads, whoever submitted the most qualifying leads in the calendar month is that month's Supreme (`getMonthlySupreme`). The LifeSaver home screen shows "Supreme" for the current holder.
+- **ASSUMPTION - confirm:** the $500 Supreme bonus is paid to each month's Supreme. It is only banked if you create a monthly time trigger for `awardSupremeMonthly` (runs on the 1st, idempotent). Nothing is paid until that trigger exists.
+- Non-cash perks (swag, plaques, gift boxes, features) are fulfilled manually by the operator.
+- Old tier names (`Star 1`...`Star 5 Elite`), the badge "Reach Star 5 Elite tier", and the landing page copy "Five earning tiers" still exist and conflict with this model. Replace them.
 
-### Gaps in current code to fix as part of this work
-- `PLATFORM_FEE = 2.00` in `backend/Code.gs` and `-$2.00` in `AgentLeads.jsx` / `AgentPool.jsx` -> must be $5 and rating-driven.
-- `lead_accept` / `claim_from_pool` store `d.lifesaverPayout` sent by the browser -> compute server-side.
-- `lead_rating` POST has no authorization -> anyone can set stars (and therefore price). Restrict to admin.
-- No Stripe code exists. Plan: Vercel `api/` functions (`checkout`, `webhook` with signature verification). Secret keys only in Vercel env vars; build in Stripe **test mode** first.
-- Weekly payout is a ledger + report first (manual/batched); Stripe Connect automation is a later phase.
+### How purchasing works in code
+1. Agent clicks **Buy** on a lead in Leads (assigned LifeSavers) or Pool -> browser calls `POST /api/checkout` with only `{ leadId, agentEmail }`.
+2. `api/checkout.js` asks Apps Script `?query=lead_quote` (shared secret `SERVER_KEY`) for the price, which is computed from the stored star rating. It creates a Stripe Checkout Session with two line items (lead price, $5 service fee). The browser can never choose the amount.
+3. Agent pays on Stripe. Stripe calls `POST /api/webhook` (signature verified). The function reads the real Stripe fee and calls Apps Script `payment_complete`.
+4. Apps Script (under a lock, idempotent per Stripe session) re-checks the amount, marks the lead `ACCEPTED`, writes `LSE_FEE`, `LIFESAVER_PAYOUT`, `STRIPE_FEE` ledger rows, and **emails the agent the full contact details** and the LifeSaver the earnings.
+5. If two agents pay for the same lead, or the amount is wrong, the lead is NOT unlocked: a `NEEDS_REFUND` ledger row is written and the admin is emailed to refund in Stripe.
+6. 1-star leads cost $0: `lead_accept` / `claim_from_pool` unlock them directly and refuse paid leads (HTTP 402).
+
+Why contact details are emailed rather than shown in-app: login is email-only (Section 8), so an in-app "show contact" endpoint would let anyone who knows an agent's email read customer phone numbers. Add one only after real authentication exists.
+
+### Setup required before this works (none of it is done yet)
+**Apps Script** (Project Settings > Script properties): `SERVER_KEY` = a long random string. Optional `ADMIN_API_KEY` for the manual rating override. Then paste the new `Code.gs`, **Deploy > New version**. Optionally add a monthly trigger for `awardSupremeMonthly`.
+**Stripe** (start in Test mode): copy the secret key; create a webhook endpoint `https://<your-domain>/api/webhook` for event `checkout.session.completed` and copy its signing secret.
+**Vercel** env vars (server-side, no `VITE_` prefix): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SERVER_KEY` (same value as Apps Script), `SITE_URL` (e.g. `https://app.lifesaverselite.com`); `VITE_WEBAPP_URL` as before. Redeploy. See `.env.example`. **Never paste Stripe keys into chat, code, or git.**
+Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` sheet for three rows.
+
+### Domain plan (decided)
+`app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
+
+### Remaining gaps / known limits
+- No automated weekly payout run yet: earnings are banked in the ledger (`LIFESAVER_PAYOUT`, `LEVEL_BONUS`) and the LifeSaver dashboard shows them. A Sunday payout report/CSV for the admin is the next piece; Stripe Connect automation is a later phase.
+- The Admin "override star rating" action now returns 403 (the old endpoint let anyone change a lead's price). Re-enable it after admin authentication is built.
+- Admin password hardcoded in the client bundle, unauthenticated GET endpoints and email-only login remain (Section 8). These matter more now that real money moves.
+- The payout recorded for a lead is `max(0, lead price - Stripe fee)`; on a $5 (2-star) lead the LifeSaver nets about $4.41.
 
 ## 10. Known Doc Drift (README.md)
 

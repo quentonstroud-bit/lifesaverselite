@@ -44,7 +44,7 @@ export default function LSHome() {
           <h1 className="text-2xl font-bold">{firstName}</h1>
         </div>
         <div className="bg-warning/20 border border-warning/30 px-3 py-1.5 rounded-full">
-          <span className="text-warning text-xs font-bold">{user?.tier || 'Star 1'}</span>
+          <span className="text-warning text-xs font-bold">{data?.isSupreme ? 'Supreme' : (data?.level || 'Supporter')}</span>
         </div>
       </div>
 

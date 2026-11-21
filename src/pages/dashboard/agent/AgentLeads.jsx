@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { CheckCircle, X, Clock, CreditCard } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
+import { startPurchase, readPurchaseResult, money } from '../../../lib/purchase'
 
 const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
-
-const PAYOUT_BY_STARS = { 1: 6, 2: 9, 3: 12, 4: 18, 5: 22.50 }
 
 export default function AgentLeads() {
   const { user }   = useAuth()
@@ -13,6 +12,9 @@ export default function AgentLeads() {
   const [stats,    setStats]    = useState({ accepted: 0, declined: 0 })
   const [loading,  setLoading]  = useState(true)
   const [accepted, setAccepted] = useState(null)
+  const [buyingId, setBuyingId] = useState(null)
+  const [error,    setError]    = useState('')
+  const [banner,   setBanner]   = useState(() => readPurchaseResult())
 
   function fetchLeads() {
     if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
@@ -28,29 +30,19 @@ export default function AgentLeads() {
 
   useEffect(() => { fetchLeads() }, [user?.email])
 
-  async function acceptLead(lead) {
-    const stars   = lead.stars || 3
-    const payout  = PAYOUT_BY_STARS[stars] || 12
-    setLeads(p => p.filter(l => l.id !== lead.id))
-    setAccepted(lead)
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            formType: 'lead_accept',
-            leadId: lead.id,
-            agentId: user.email,
-            agentEmail: user.email,
-            lifesaverPayout: payout,
-            stars,
-            newStarsBalance: stars,
-            milestoneTriggered: false,
-          })
-        })
-      } catch {}
+  async function buyLead(lead) {
+    setError('')
+    setBuyingId(lead.id)
+    try {
+      const r = await startPurchase(lead, user.email)
+      if (r.free) {
+        setLeads(p => p.filter(l => l.id !== lead.id))
+        setAccepted(lead)
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBuyingId(null)
     }
   }
 
@@ -88,10 +80,22 @@ export default function AgentLeads() {
         ))}
       </div>
 
+      {banner === 'success' && (
+        <div className="bg-success/10 border border-success/30 text-success text-sm rounded-xl px-4 py-3">
+          Payment received. Full contact details are being emailed to you now. The lead will leave this list once the purchase is recorded.
+        </div>
+      )}
+      {banner === 'cancelled' && (
+        <div className="bg-warning/10 border border-warning/30 text-warning text-sm rounded-xl px-4 py-3">Checkout cancelled. You have not been charged.</div>
+      )}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl px-4 py-3">{error}</div>
+      )}
+
       {/* Instructions */}
       <div className="flex items-center justify-between text-xs text-gray-600 px-1">
-        <span className="flex items-center gap-1"><X size={12} className="text-red-500" /> Click Decline to pass</span>
-        <span className="flex items-center gap-1"><CheckCircle size={12} className="text-success" /> Click Accept to unlock contact</span>
+        <span className="flex items-center gap-1"><X size={12} className="text-red-500" /> Decline to pass</span>
+        <span className="flex items-center gap-1"><CreditCard size={12} className="text-success" /> Buy to unlock contact</span>
       </div>
 
       {/* Lead cards */}
@@ -106,7 +110,7 @@ export default function AgentLeads() {
       ) : (
         <div className="flex flex-col gap-4">
           {leads.map(lead => (
-            <LeadCard key={lead.id} lead={lead} onAccept={() => acceptLead(lead)} onDecline={() => declineLead(lead)} />
+            <LeadCard key={lead.id} lead={lead} buying={buyingId === lead.id} onBuy={() => buyLead(lead)} onDecline={() => declineLead(lead)} />
           ))}
         </div>
       )}
@@ -117,7 +121,7 @@ export default function AgentLeads() {
           <div className="bg-surface border border-success/30 rounded-2xl p-6 max-w-sm w-full">
             <div className="flex items-center gap-3 mb-4">
               <CheckCircle size={24} className="text-success" />
-              <h2 className="text-lg font-bold">Lead Accepted</h2>
+              <h2 className="text-lg font-bold">Lead Unlocked</h2>
             </div>
             <p className="text-gray-400 text-sm mb-4">
               Contact info unlocked for {accepted.firstName} {accepted.lastInitial}.
@@ -132,8 +136,8 @@ export default function AgentLeads() {
                 <span className="font-semibold">{accepted.lifesaverHandle}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500">LSE fee</span>
-                <span className="text-primary font-semibold">-$2.00</span>
+                <span className="text-gray-500">Charged</span>
+                <span className="text-primary font-semibold">{money(accepted.total)}</span>
               </div>
             </div>
             <p className="text-xs text-gray-500 text-center mb-4">Full contact details will be emailed to you.</p>
@@ -147,7 +151,7 @@ export default function AgentLeads() {
   )
 }
 
-function LeadCard({ lead, onAccept, onDecline }) {
+function LeadCard({ lead, buying, onBuy, onDecline }) {
   const urgent   = lead.hoursLeft < 8
   const almostDue = lead.hoursLeft < 24
 
@@ -206,12 +210,26 @@ function LeadCard({ lead, onAccept, onDecline }) {
           </div>
         )}
 
+        <div className="bg-bg rounded-lg px-3 py-2.5 text-xs mb-3 flex justify-between items-center">
+          {lead.total > 0 ? (
+            <>
+              <span className="text-gray-500">Lead {money(lead.price)} + {money(lead.fee)} service fee</span>
+              <span className="font-bold text-white">{money(lead.total)}</span>
+            </>
+          ) : (
+            <>
+              <span className="text-gray-500">1-star lead</span>
+              <span className="font-bold text-success">Free</span>
+            </>
+          )}
+        </div>
+
         <div className="flex gap-3">
           <button onClick={onDecline} className="flex-1 flex items-center justify-center gap-2 border border-red-500/40 text-red-400 py-3 rounded-xl text-sm font-semibold hover:bg-red-500/10 transition-colors">
             <X size={16} /> Decline
           </button>
-          <button onClick={onAccept} className="flex-1 flex items-center justify-center gap-2 bg-success/20 border border-success/30 text-success py-3 rounded-xl text-sm font-semibold hover:bg-success/30 transition-colors">
-            <CheckCircle size={16} /> Accept
+          <button onClick={onBuy} disabled={buying} className="flex-1 flex items-center justify-center gap-2 bg-success/20 border border-success/30 text-success py-3 rounded-xl text-sm font-semibold hover:bg-success/30 disabled:opacity-60 transition-colors">
+            <CreditCard size={16} /> {buying ? 'Please wait...' : lead.total > 0 ? `Buy ${money(lead.total)}` : 'Unlock Free'}
           </button>
         </div>
       </div>

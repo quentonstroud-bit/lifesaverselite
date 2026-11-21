@@ -45,7 +45,7 @@ export default function LSSubmit() {
           <CheckCircle size={32} className="text-success" />
         </div>
         <h2 className="text-2xl font-bold mb-2">Referral Submitted!</h2>
-        <p className="text-gray-400 text-sm mb-1">Pending STARS -- Rating coming soon</p>
+        <p className="text-gray-400 text-sm mb-1">Your referral is rated automatically from the details you submitted</p>
         <p className="text-gray-500 text-xs mb-8">Your agent will review within 48 hours.</p>
         <button onClick={() => { setForm(INITIAL); setSubmitted(false) }}
           className="bg-primary hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors">
