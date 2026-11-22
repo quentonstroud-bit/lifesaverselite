@@ -210,21 +210,27 @@ The real fee is read from Stripe after payment; the backend only estimates (2.9%
 
 Form order: **First name, Last name** (separate required fields, not scored), phone, email, city, **state**, age, beneficiaries listed + each beneficiary's name and relationship, then the Health section (rating, conditions checklist, smoking), policy type, purchase timeline, notes.
 
-| Field | Points |
-|---|---|
-| Phone (10+ digits) | 10 |
-| Valid email | 5 |
-| **State** (dropdown of the 50 states + DC; **the state is what earns the points, city is optional and unscored**, because agents are licensed by state) | 5 |
-| Beneficiaries listed | 2+ = 8, 1 = 5 |
-| Beneficiary names + relationships (each listed row needs a name of 2+ characters and a relationship; up to 5 rows) | up to 7, proportional to rows completed |
-| Health rating | 7+ = 8, 4-6 = 4 |
-| **Health conditions checklist** | **"None of these" = 7 of 7. Otherwise 7 minus 1 for every condition checked, never below 0. Left blank = 0.** |
-| Smoking status | Non-smoker 5, Former 3, Smoker 2 |
-| Policy type | Any specific type 15, "Other / Not sure" 3 |
-| **Purchase timeline** | **Same day coverage 20, 1 week 16, 2 weeks 12, 3 weeks 8, 4 weeks 4** (the three old values from before 2026-11-21 still score so older leads are unaffected) |
-| Notes | **150+ characters = 10**, 30-149 = 6, any text = 3 |
+| Section | Field | Points |
+|---|---|---|
+| Contact (16) | Phone (10+ digits) | 8 |
+| | Valid email | 4 |
+| | **State** (dropdown, 50 states + DC; city optional and unscored) | 4 |
+| Beneficiaries (11) | Beneficiaries listed | 2+ = 6, 1 = 4 |
+| | Names + relationships (each listed row needs a 2+ character name and a relationship; up to 5 rows) | up to 5, proportional |
+| Health (17) | Health rating | 7+ = 6, 4-6 = 3 |
+| | **Conditions checklist** (owner rule) | "None of these" = 7; 7 minus 1 per condition checked, floor 0; blank = 0 |
+| | Smoking | Non-smoker 4, Former 2, Smoker 1 |
+| Policy (12) | Policy type | Specific 12, "Other / Not sure" 2 |
+| Timeline (14) | Purchase timeline | Same day 14, 1 week 11, 2 weeks 8, 3 weeks 5, 4 weeks 2 (old values: 1-3 mo 14, 3-6 mo 8, 6-12 mo 4) |
+| Notes (10) | Notes (owner rule) | **150+ characters = 10**, 30-149 = 6, any = 3 |
+| **About the conversation (20)** | Is the referral ready to take a call? | Yes 8, Maybe 4, Not yet 0 |
+| | Did the referral agree to hear from an agent? | Yes 6, No 0 |
+| | Does the referral have existing coverage? | None / employer only 2, individual policy / not sure 1 |
+| | Coverage amount the referral has in mind | Any amount 2, not sure 1 |
+| | People who depend on the referral's income | 2 or more 2, 1 or none 1 |
+| | Best time to reach the referral | not scored (helps the agent) |
 
-Beneficiaries (15) and Health (20) keep the same point budgets as before, so the total is still 100 and the star thresholds below did not move. Health conditions offered (11 + "None of these"): diabetes; heart disease or heart attack; stroke; cancer (current or past); kidney disease or renal failure; high blood pressure; COPD, emphysema or lung disease; liver disease or hepatitis; **HIV/AIDS**; Alzheimer's or dementia; alcohol or drug treatment. Beneficiary relationships: spouse, **son, daughter**, parent, sibling, other family, friend, other. **Policy types:** general life insurance, final expense / burial, cremation, leave money / legacy, mortgage protection, IUL, annuity, safe retirement planning, other / not sure (health insurance, Medicare, auto and home were removed). The server only accepts values from these lists (anything else is stored blank). "None of these" only counts when nothing else is checked. **Design note:** because "None of these" scores highest, a LifeSaver is rewarded for not reporting conditions. Agents see the checked conditions before buying, so under-reporting costs LifeSavers their reputation, but consider a rule later (for example, agents can flag a lead whose health details were wrong, which removes its payout). The lists and weights live in `backend/Code.gs` (`HEALTH_CONDITIONS`, `RELATIONSHIPS`, `POLICY_TYPES`, `TIMELINES`, `US_STATES`, `scoreLead`) and are mirrored in `src/lib/leadScore.js`; a parity test checks they agree.
+Total 100; star thresholds unchanged. Adding the conversation section (2026-11-22) took points from the other sections; the owner's explicit rules (notes 150 = 10, conditions 7 minus 1 each) were kept as they were. Conversation answers are stored in `Leads` columns X-AC (`ReadyForCall`, `AgreedToContact`, `ExistingCoverage`, `CoverageAmount`, `Dependents`, `BestTime`; `installTriggers`/`setupSheets` adds the headers), shown on the agent's card before purchase, and included in the post-purchase email. The form calls the person being referred **"the referral"**, not "the lead".
 
 **Privacy:** beneficiary **names** are stored (Leads sheet) but never shown to an agent before purchase. Agents see only relationships and the health-condition list on the lead card; names go out in the post-purchase email with the other contact details.
 

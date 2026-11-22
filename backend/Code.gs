@@ -56,8 +56,21 @@ var POLICY_TYPES = ['General life insurance', 'Final expense / burial', 'Cremati
   'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', 'Other / Not sure']
 var TIMELINES = ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks']
 // Points for the purchase timeline (max 20). The three old values are kept so leads submitted before the change still score.
-var TIMELINE_POINTS = { 'Same day coverage': 20, '1 week': 16, '2 weeks': 12, '3 weeks': 8, '4 weeks': 4,
-  '1 to 3 months': 20, '3 to 6 months': 12, '6 to 12 months': 6 }
+var TIMELINE_POINTS = { 'Same day coverage': 14, '1 week': 11, '2 weeks': 8, '3 weeks': 5, '4 weeks': 2,
+  '1 to 3 months': 14, '3 to 6 months': 8, '6 to 12 months': 4 }
+
+// "About the conversation" questions (asked about the referral). Lists are what the form offers; maps are points.
+var READY_OPTIONS    = ['Yes, expecting a call', 'Maybe, needs a nudge', 'Not yet']
+var READY_POINTS     = { 'Yes, expecting a call': 8, 'Maybe, needs a nudge': 4, 'Not yet': 0 }
+var CONSENT_OPTIONS  = ['Yes, they agreed', 'No']
+var CONSENT_POINTS   = { 'Yes, they agreed': 6, 'No': 0 }
+var EXISTING_OPTIONS = ['None', 'Through employer only', 'Has an individual policy', 'Not sure']
+var EXISTING_POINTS  = { 'None': 2, 'Through employer only': 2, 'Has an individual policy': 1, 'Not sure': 1 }
+var AMOUNT_OPTIONS   = ['Under $50k', '$50k to $100k', '$100k to $250k', '$250k to $500k', '$500k or more', 'Not sure']
+var AMOUNT_POINTS    = { 'Under $50k': 2, '$50k to $100k': 2, '$100k to $250k': 2, '$250k to $500k': 2, '$500k or more': 2, 'Not sure': 1 }
+var DEPENDENTS_OPTIONS = ['None', '1', '2 or more']
+var DEPENDENTS_POINTS  = { 'None': 1, '1': 1, '2 or more': 2 }
+var BEST_TIME_OPTIONS  = ['Morning', 'Afternoon', 'Evening', 'Weekends']   // not scored; helps the agent reach them
 var US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO',
   'MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']
 var CONDITIONS_MAX_POINTS = 7   // "None of these" = 7; each condition checked takes 1 point off, floor 0
@@ -123,55 +136,64 @@ function parseConditions(text) {
   return String(text || '').split('; ').filter(function (c) { return c === NONE_OF_THESE || HEALTH_CONDITIONS.indexOf(c) !== -1 })
 }
 
+function ptsFrom(map, v) {
+  v = String(v === undefined || v === null ? '' : v)
+  return Object.prototype.hasOwnProperty.call(map, v) ? map[v] : 0
+}
+
 // Score a referral from how complete and strong the submitted form is. 0-100.
+// Contact 16 | Beneficiaries 11 | Health 17 | Policy type 12 | Timeline 14 | Notes 10 | Conversation 20
 function scoreLead(d) {
   var pts = 0
-  var phoneDigits = String(d.phone || '').replace(/\D/g, '')
-  if (phoneDigits.length >= 10) pts += 10
-  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim())) pts += 5
-  if (cleanState(d.state)) pts += 5   // the state is what counts (agents are licensed by state); city is optional
+  // Contact: phone 8, email 4, state 4 (agents are licensed by state; city is optional and unscored)
+  if (String(d.phone || '').replace(/\D/g, '').length >= 10) pts += 8
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim())) pts += 4
+  if (cleanState(d.state)) pts += 4
 
-  // Beneficiaries: 15 points = count (8) + each listed beneficiary named with a relationship (7)
+  // Beneficiaries 11: count (2+ = 6, 1 = 4) + each listed beneficiary named with a relationship (up to 5)
   var ben = parseInt(d.beneficiaries, 10) || 0
-  if (ben >= 2) pts += 8
-  else if (ben === 1) pts += 5
+  if (ben >= 2) pts += 6
+  else if (ben === 1) pts += 4
   var rows = Math.min(ben, MAX_BENEFICIARY_ROWS)
   if (rows > 0) {
     var det = d.beneficiaryDetails || [], complete = 0
     for (var b = 0; b < rows && b < det.length; b++) {
       if (det[b] && String(det[b].name || '').trim().length >= 2 && String(det[b].relationship || '').trim()) complete++
     }
-    pts += Math.round(7 * complete / rows)
+    pts += Math.round(5 * complete / rows)
   }
 
-  // Health: 20 points = rating (8) + conditions reviewed (7) + smoking (5)
+  // Health 17: rating (7+ = 6, 4-6 = 3) + conditions (owner rule: "None of these" = 7, minus 1 per condition, floor 0) + smoking (4/2/1)
   var health = parseInt(d.healthRating, 10) || 0
-  if (health >= 7) pts += 8
-  else if (health >= 4) pts += 4
-
-  // Conditions: not answered = 0. "None of these" = 7. Otherwise 7 minus 1 per condition checked, never below 0.
+  if (health >= 7) pts += 6
+  else if (health >= 4) pts += 3
   var conds = d.healthConditions
   if (conds && conds.length > 0) {
     pts += conds.indexOf(NONE_OF_THESE) !== -1 ? CONDITIONS_MAX_POINTS : Math.max(0, CONDITIONS_MAX_POINTS - conds.length)
   }
-
   var smoking = String(d.smoking || '')
-  if (smoking === 'Non-Smoker') pts += 5
-  else if (smoking === 'Former Smoker') pts += 3
-  else if (smoking === 'Smoker') pts += 2
+  if (smoking === 'Non-Smoker') pts += 4
+  else if (smoking === 'Former Smoker') pts += 2
+  else if (smoking === 'Smoker') pts += 1
 
+  // Policy type 12 ("Other / Not sure" = 2) and purchase timeline (up to 14)
   var policy = String(d.policyInterest || '')
-  if (policy && policy.indexOf('Not sure') === -1) pts += 15
-  else if (policy) pts += 3
+  if (policy && policy.indexOf('Not sure') === -1) pts += 12
+  else if (policy) pts += 2
+  pts += ptsFrom(TIMELINE_POINTS, d.timeline)
 
-  var tl = String(d.timeline || '')
-  if (Object.prototype.hasOwnProperty.call(TIMELINE_POINTS, tl)) pts += TIMELINE_POINTS[tl]
-
+  // Notes (owner rule: 150+ characters = 10)
   var notesLen = String(d.notes || '').trim().length
   if (notesLen >= 150) pts += 10
   else if (notesLen >= 30) pts += 6
   else if (notesLen > 0) pts += 3
 
+  // About the conversation 20: ready for a call 8, agreed to hear from an agent 6, coverage 2, amount 2, dependents 2
+  pts += ptsFrom(READY_POINTS, d.readyForCall)
+  pts += ptsFrom(CONSENT_POINTS, d.agreedToContact)
+  pts += ptsFrom(EXISTING_POINTS, d.existingCoverage)
+  pts += ptsFrom(AMOUNT_POINTS, d.coverageAmount)
+  pts += ptsFrom(DEPENDENTS_POINTS, d.dependents)
   return pts
 }
 
@@ -187,7 +209,8 @@ function leadFromRow(row) {
   return { phone: row[3], email: row[4], city: row[5], state: row[6], age: row[7],
            beneficiaries: row[8], healthRating: row[9], smoking: row[10],
            policyInterest: row[11], timeline: row[12], notes: row[13],
-           beneficiaryDetails: parseBeneficiaries(row[21]), healthConditions: parseConditions(row[22]) }
+           beneficiaryDetails: parseBeneficiaries(row[21]), healthConditions: parseConditions(row[22]),
+           readyForCall: row[23], agreedToContact: row[24], existingCoverage: row[25], coverageAmount: row[26], dependents: row[27] }
 }
 
 function starsForRow(row) {
@@ -535,6 +558,8 @@ function getAgentLeads(params) {
         age: row[7], health: row[9], smoking: row[10],
         beneficiaries: row[8], policy: row[11], timeline: row[12],
         conditions: parseConditions(row[22]),
+        readyForCall: row[23] || '', agreedToContact: row[24] || '', existingCoverage: row[25] || '',
+        coverageAmount: row[26] || '', dependents: row[27] || '', bestTime: row[28] || '',
         beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
         lifesaverHandle: row[15], notes: row[13]
       })
@@ -693,6 +718,8 @@ function getPoolLeads() {
       age: row[7], health: row[9], smoking: row[10],
       beneficiaries: row[8], policy: row[11], timeline: row[12],
       conditions: parseConditions(row[22]),
+        readyForCall: row[23] || '', agreedToContact: row[24] || '', existingCoverage: row[25] || '',
+        coverageAmount: row[26] || '', dependents: row[27] || '', bestTime: row[28] || '',
       beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
       lifesaverHandle: row[15],
       source: String(row[19] || 'Available in pool')
@@ -1111,6 +1138,12 @@ function handleReferralSubmit(d) {
   d.timeline = cleanChoice(d.timeline, TIMELINES)
   d.beneficiaryDetails = cleanBeneficiaries(d.beneficiaryDetails)
   d.healthConditions   = cleanConditions(d.healthConditions)
+  d.readyForCall       = cleanChoice(d.readyForCall, READY_OPTIONS)
+  d.agreedToContact    = cleanChoice(d.agreedToContact, CONSENT_OPTIONS)
+  d.existingCoverage   = cleanChoice(d.existingCoverage, EXISTING_OPTIONS)
+  d.coverageAmount     = cleanChoice(d.coverageAmount, AMOUNT_OPTIONS)
+  d.dependents         = cleanChoice(d.dependents, DEPENDENTS_OPTIONS)
+  d.bestTime           = cleanChoice(d.bestTime, BEST_TIME_OPTIONS)
   var stars  = starsFromScore(scoreLead(d))
 
   // Unique id, generated and saved under a lock so two simultaneous referrals can never share one.
@@ -1125,7 +1158,8 @@ function handleReferralSubmit(d) {
     d.healthRating, d.smoking, d.policyInterest, d.timeline,
     d.notes || '', d.lifesaverId, d.lifesaverHandle,
     'PENDING', stars, expiry, leadFee(stars),
-    '', beneficiariesToText(d.beneficiaryDetails), d.healthConditions.join('; ')
+    '', beneficiariesToText(d.beneficiaryDetails), d.healthConditions.join('; '),
+    d.readyForCall, d.agreedToContact, d.existingCoverage, d.coverageAmount, d.dependents, d.bestTime
   ])
   } finally {
     lock.releaseLock()
@@ -1236,6 +1270,9 @@ function agentPurchaseBody(row, stars) {
     + ' | <strong>Health:</strong> ' + escHtml(row[9]) + '/10 | <strong>Smoking:</strong> ' + escHtml(row[10]) + '</p>'
     + '<p><strong>Beneficiaries:</strong> ' + escHtml(row[21] || 'Not provided') + '</p>'
     + '<p><strong>Health conditions:</strong> ' + escHtml(row[22] || 'Not provided') + '</p>'
+    + '<p><strong>Ready to take a call:</strong> ' + escHtml(row[23] || 'Not asked') + ' | <strong>Agreed to hear from an agent:</strong> ' + escHtml(row[24] || 'Not asked') + '</p>'
+    + '<p><strong>Existing coverage:</strong> ' + escHtml(row[25] || 'Not asked') + ' | <strong>Coverage amount:</strong> ' + escHtml(row[26] || 'Not asked')
+    + ' | <strong>Dependents:</strong> ' + escHtml(row[27] || 'Not asked') + ' | <strong>Best time to reach:</strong> ' + escHtml(row[28] || 'Not asked') + '</p>'
     + '<p><strong>Policy interest:</strong> ' + escHtml(row[11]) + ' | <strong>Timeline:</strong> ' + escHtml(row[12]) + '</p>'
     + '<p><strong>Star rating:</strong> ' + stars + ' / 5</p>'
     + '<p><strong>Notes:</strong> ' + escHtml(row[13]) + '</p>'
@@ -1870,7 +1907,8 @@ var SHEET_HEADERS = {
   LifeSaver_Applications: ['Timestamp', 'Name', 'Email', 'Phone', 'MainSocialMedia', 'Positions', 'Employment', 'Insurance', 'Referral', 'Excites', 'Resume'],
   Agent_Broker_Applications: ['Timestamp', 'Name', 'Agency', 'Email', 'Phone', 'NPN', 'States', 'Years', 'Lines', 'PayoutStructure', 'HearAbout', 'PaymentMethod'],
   Leads: ['LeadID', 'Timestamp', 'LeadName', 'Phone', 'Email', 'City', 'State', 'Age', 'Beneficiaries', 'HealthRating', 'Smoking', 'PolicyType', 'Timeline', 'Notes',
-          'LifeSaverID', 'LifeSaverHandle', 'Status', 'StarRating', 'Expiry', 'LSEFee', 'PoolSource', 'BeneficiaryDetails', 'HealthConditions'],
+          'LifeSaverID', 'LifeSaverHandle', 'Status', 'StarRating', 'Expiry', 'LSEFee', 'PoolSource', 'BeneficiaryDetails', 'HealthConditions',
+          'ReadyForCall', 'AgreedToContact', 'ExistingCoverage', 'CoverageAmount', 'Dependents', 'BestTime'],
   Transactions: ['Timestamp', 'LeadID', 'AgentEmail', 'Type', 'Amount', 'LifeSaverID', 'Source'],
   Users: ['UserID', 'Name', 'Role', 'Email', 'Handle', 'Tier', 'AssignedAgentEmail'],
   Credentials: ['Email', 'PasswordHash', 'UpdatedAt']
