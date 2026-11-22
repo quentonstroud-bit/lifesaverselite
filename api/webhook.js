@@ -36,6 +36,34 @@ export default async function handler(req, res) {
   if (!verifySignature(raw, req.headers['stripe-signature'], secret)) return res.status(400).send('Bad signature')
 
   const event = JSON.parse(raw.toString('utf8'))
+  const post = (body) => fetch(webapp, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ ...body, serverKey }),
+  })
+
+  // A refund issued in the Stripe dashboard (or API) flows back into the ledger automatically.
+  if (event.type === 'charge.refunded') {
+    const ch = event.data.object
+    let meta = ch.metadata || {}
+    if (!meta.leadId && ch.payment_intent) {
+      try {
+        const r = await fetch(`${STRIPE}/payment_intents/${ch.payment_intent}`, { headers: { Authorization: `Bearer ${stripeKey}` } })
+        meta = (await r.json())?.metadata || {}
+      } catch { /* record without lead details */ }
+    }
+    const r = await post({
+      formType: 'refund_recorded',
+      chargeId: ch.id,
+      paymentIntent: ch.payment_intent,
+      amountRefunded: ch.amount_refunded,   // running total for this charge
+      leadId: meta.leadId,
+      agentEmail: meta.agentEmail,
+    })
+    if (!r.ok) return res.status(502).end()
+    return res.json({ received: true })
+  }
+
   if (event.type !== 'checkout.session.completed') return res.json({ received: true })
 
   const s = event.data.object
@@ -52,18 +80,14 @@ export default async function handler(req, res) {
     if (typeof fee === 'number') stripeFee = fee / 100
   } catch { /* use fallback */ }
 
-  const r = await fetch(webapp, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({
-      formType: 'payment_complete',
-      serverKey,
-      sessionId: s.id,
-      leadId: s.metadata?.leadId,
-      agentEmail: s.metadata?.agentEmail,
-      amountTotal: s.amount_total,
-      stripeFee,
-    }),
+  const r = await post({
+    formType: 'payment_complete',
+    sessionId: s.id,
+    paymentIntent: s.payment_intent,
+    leadId: s.metadata?.leadId,
+    agentEmail: s.metadata?.agentEmail,
+    amountTotal: s.amount_total,
+    stripeFee,
   })
   if (!r.ok) return res.status(502).end() // Stripe will retry
 

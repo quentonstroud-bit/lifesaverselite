@@ -267,8 +267,8 @@ Cash bonuses are banked into the same weekly payout. Non-cash perks are fulfille
 Why contact details are emailed rather than shown in-app: login is email-only (Section 8), so an in-app "show contact" endpoint would let anyone who knows an agent's email read customer phone numbers. Add one only after real authentication exists.
 
 ### Setup required before this works (none of it is done yet)
-**Apps Script** (Project Settings > Script properties): `SERVER_KEY` = a long random string (same value as Vercel). Optional `ADMIN_EMAILS` (comma list; defaults to `reverendqs@gmail.com`). Then paste the new `Code.gs`, **Deploy > New version**, and run `installMonthlyTriggers()` once.
-**Stripe** (start in Test mode): copy the secret key; create a webhook endpoint `https://<your-domain>/api/webhook` for event `checkout.session.completed` and copy its signing secret.
+**Apps Script** (Project Settings > Script properties): `SERVER_KEY` = a long random string (same value as Vercel). Optional `ADMIN_EMAILS` (comma list; defaults to `reverendqs@gmail.com`). Then paste the new `Code.gs`, **Deploy > New version**, and run `installTriggers()` once (creates/repairs the Sheet tabs and schedules all jobs).
+**Stripe** (start in Test mode): copy the secret key; create a webhook endpoint `https://<your-domain>/api/webhook` for events `checkout.session.completed` **and `charge.refunded`**, and copy its signing secret.
 **Vercel** env vars (server-side, no `VITE_` prefix): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SERVER_KEY` (same value as Apps Script), `SESSION_SECRET` (new long random string), `SITE_URL` (e.g. `https://app.lifesaverselite.com`), `WEBAPP_URL` (the Apps Script `/exec` URL). Redeploy. See `.env.example`. **Never paste Stripe keys into chat, code, or git.**
 Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` sheet for three rows.
 
@@ -276,6 +276,33 @@ Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` 
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
 
 **Lead ids** are `LD-` + milliseconds + 3 random digits, re-rolled if already used and saved under a lock (previously two referrals in the same millisecond could share an id, which would have let a purchase attach to the wrong lead). Checkout still validates `/^LD-\d+$/`.
+
+### Finance (owner decisions 2026-11-22)
+
+Everything is computed by Apps Script from the `Transactions` ledger, so the Sheet stays the single source of truth and the numbers update the moment a purchase, refund or payout is recorded.
+
+| Figure | Definition |
+|---|---|
+| **Gross income** | Everything agents paid (`AGENT_CHARGE` rows: lead price + $5 fee), including charges later refunded |
+| **Corrected gross income** | Gross - refunds - Stripe processing fees (what actually lands in the bank) |
+| **LSE service fees** | The $5 fees earned on paid leads (shown on their own line) |
+| **LSE net income** | Corrected gross - LifeSaver commissions - level bonuses (what LSE keeps) |
+
+Periods: **weekly (Sunday-Saturday, script time zone), monthly, year to date** (+ last week / last month). A normal 5-star purchase checks out as: gross $35, Stripe $1.20, corrected $33.80, commission $28.80, LSE net $5.00 = the service fee.
+
+Where it shows up:
+- **Admin > Revenue & Finance:** period picker, gross -> corrected gross -> net waterfall, counts, "Needs action" (payroll due, refunds still to issue), 8-week / monthly trend, **1099-NEC tracking** (paid per LifeSaver per calendar year, flagged at $600, warning from $500, CSV download), then payroll and fees by agent.
+- **Sunday 7am email** to the admin inbox (`sendWeeklySummary`): last week, month to date, year to date, payroll due, refunds pending, 1099 count.
+- **LifeSaver > Earnings:** next payout (owed now), paid this year, earned this week / month / year, level progress, last 8 weeks.
+- **Agent > Spend:** paid this week / month / year (after refunds), paid and free lead counts, last 7 days of purchases.
+
+**Ledger row types** (`Transactions`, column D): `AGENT_CHARGE` (what the agent paid; source `STRIPE:<session>|pi:<payment intent>`), `LSE_FEE`, `LIFESAVER_PAYOUT` (commission), `STRIPE_FEE`, `FREE_UNLOCK`, `NEEDS_REFUND` (charged but not unlocked), `REFUND`, `LEVEL_BONUS`, `PAYOUT_PAID`.
+
+**Refunds flow back automatically:** add the `charge.refunded` event to the Stripe webhook. Partial and repeated refund events record only the difference. A refund on a lead that was already unlocked emails the admin; the LifeSaver commission is **not** reversed automatically (decide case by case before the next payout).
+
+**Sheet setup:** `setupSheets()` creates any missing tab and fills in blank header cells; it never renames or deletes anything and re-running it changes nothing. `installTriggers()` runs it and schedules the Supreme bonus (1st of the month), auto-decline (hourly) and the weekly email (Sunday 7am). Run `installTriggers` once from the Apps Script editor (the old `installMonthlyTriggers` name still works).
+
+**Heads-up on the `Users` sheet:** the code reads column E as the LifeSaver's **handle** (for example `@sam`). The old README called that column "Status". If your sheet has statuses in column E, move them and put handles there.
 
 ### Payroll report (Admin > Revenue > LifeSaver Payroll)
 Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cutoff, minus rows already marked `PAYOUT_PAID`. The report lists who is owed what, downloads as **CSV** (formula-injection safe), and **Mark all paid** records the batch. Marking is guarded: it refuses if totals changed since you opened the report (409), is idempotent per batch id, and requires a confirm dialog. Workflow: open report -> Download CSV -> send the money -> Mark all paid. Payment method per LifeSaver is not stored yet (add a payout-method field to the application/profile when you choose a payout rail).

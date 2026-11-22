@@ -55,6 +55,7 @@ export default async function handler(req, res) {
   p.set('metadata[leadId]', leadId)
   p.set('metadata[agentEmail]', agentEmail)
   p.set('payment_intent_data[metadata][leadId]', leadId)
+  p.set('payment_intent_data[metadata][agentEmail]', agentEmail)   // lets refunds be matched to the agent
   p.set('line_items[0][quantity]', '1')
   p.set('line_items[0][price_data][currency]', 'usd')
   p.set('line_items[0][price_data][unit_amount]', String(cents(quote.price)))

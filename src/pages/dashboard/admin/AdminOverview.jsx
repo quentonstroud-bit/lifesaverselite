@@ -18,8 +18,9 @@ export default function AdminOverview() {
   const ag = stats?.agCount ?? '—'
   const leads = stats?.leadsThisWeek ?? '—'
   const pool = stats?.inPool ?? '—'
-  const revenue = stats ? stats.weeklyRevenue.toFixed(2) : '—'
-  const pct = stats ? Math.min(100, Math.round((stats.weeklyRevenue / WEEKLY_TARGET) * 100)) : 0
+  const weekly = Number(stats?.weeklyRevenue) || 0
+  const revenue = stats ? weekly.toFixed(2) : '—'
+  const pct = stats ? Math.min(100, Math.round((weekly / WEEKLY_TARGET) * 100)) : 0
 
   return (
     <div className="flex flex-col gap-5 pb-4">

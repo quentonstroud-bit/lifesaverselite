@@ -21,6 +21,7 @@ const GETS = {
   admin_leads:        { role: 'admin',      build: () => ({}) },
   admin_revenue:      { role: 'admin',      build: () => ({}) },
   admin_payout_report:{ role: 'admin',      build: (u, p) => (isIso(p.through) ? { through: p.through } : {}) },
+  admin_finance:      { role: 'admin',      build: (u, p) => (/^\d{4}$/.test(String(p.year || '')) ? { year: String(p.year) } : {}) },
 }
 
 const REFERRAL_FIELDS = ['firstName', 'lastName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes']
@@ -83,7 +84,8 @@ export default async function handler(req, res) {
 
     if (body.type === 'get') {
       const out = await gasGet(body.query, rule.build(user, body.params || {}))
-      return res.json(out)
+      // Pass backend errors through as errors, so pages never treat an error body as data.
+      return res.status(out && out.status >= 400 ? out.status : 200).json(out)
     }
     const out = await gasPost(body.formType, rule.build(user, body))
     return res.status(out && out.status >= 400 ? out.status : 200).json(out)
