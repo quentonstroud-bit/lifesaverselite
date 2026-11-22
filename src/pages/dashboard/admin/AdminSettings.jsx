@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
+import PasswordCard from '../../../components/PasswordCard'
 import { useNavigate } from 'react-router-dom'
 import { Download, LogOut, Bell, DollarSign } from 'lucide-react'
 
@@ -84,6 +85,8 @@ export default function AdminSettings() {
           ))}
         </div>
       </div>
+
+      <PasswordCard />
 
       <button onClick={() => { logout(); navigate('/') }} className="flex items-center justify-center gap-2 w-full border border-gray-700 text-gray-400 py-4 rounded-xl hover:border-gray-500 hover:text-white transition-colors">
         <LogOut size={16} /> Sign Out

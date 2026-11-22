@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { CheckCircle, X, ChevronDown } from 'lucide-react'
+import { apiGet, apiPost } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 export default function AdminLifeSavers() {
   const [pending,    setPending]    = useState([])
@@ -10,9 +10,7 @@ export default function AdminLifeSavers() {
   const [openManage, setOpenManage] = useState(null)
 
   function fetchData() {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=admin_lifesavers`)
-      .then(r => r.json())
+        apiGet('admin_lifesavers')
       .then(d => {
         setPending(d.pending || [])
         setActive(d.active   || [])
@@ -25,16 +23,7 @@ export default function AdminLifeSavers() {
 
   async function approve(id) {
     setPending(p => p.filter(a => a.id !== id))
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ formType: 'approve_lifesaver', id })
-        })
-      } catch {}
-    }
+    try { await apiPost('approve_lifesaver', { id }) } catch {}
   }
 
   function decline(id) { setPending(p => p.filter(a => a.id !== id)) }

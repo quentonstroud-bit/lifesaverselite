@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
+import { apiGet, apiPost } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const STATUS_COLORS = {
   PENDING:  'bg-warning/20 text-warning',
@@ -17,13 +17,13 @@ const SCORE_DIMS = [
   { key: 'health',       label: 'Health Rating',       options: ['9–10 (Excellent)', '7–8 (Good)', '5–6 (Average)', '3–4 (Below avg)', '1–2 (Poor)'] },
   { key: 'beneficiaries',label: 'Beneficiaries Listed',options: ['3 or more', '2', '1', 'None'] },
   { key: 'smoking',      label: 'Smoking Status',      options: ['Non-Smoker', 'Former Smoker', 'Current Smoker'] },
-  { key: 'timeline',     label: 'Purchase Timeline',   options: ['1–3 months', '3–6 months', '6–12 months', 'Just exploring'] },
+  { key: 'timeline',     label: 'Purchase Timeline',   options: ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks'] },
   { key: 'policy',       label: 'Policy Selected',     options: ['Specific product named', 'General category', 'Unsure'] },
   { key: 'engagement',   label: 'Engagement Level',    options: ['Ready for a call', 'Interested', 'Passive', 'Unresponsive'] },
 ]
 
 const WEIGHTS = { health: 25, beneficiaries: 25, smoking: 20, timeline: 10, policy: 10, engagement: 10 }
-const SCORES  = { health: [100,80,55,25,0], beneficiaries: [100,75,40,0], smoking: [100,50,0], timeline: [100,65,35,10], policy: [100,50,0], engagement: [100,60,20,0] }
+const SCORES  = { health: [100,80,55,25,0], beneficiaries: [100,75,40,0], smoking: [100,50,0], timeline: [100,80,60,40,20], policy: [100,50,0], engagement: [100,60,20,0] }
 
 function calculateStars(sel) {
   let total = 0
@@ -45,9 +45,7 @@ export default function AdminLeads() {
   const [overrideReason, setOverrideReason] = useState('')
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=admin_leads`)
-      .then(r => r.json())
+        apiGet('admin_leads')
       .then(d => { setLeads(d.leads || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
@@ -63,17 +61,10 @@ export default function AdminLeads() {
   async function saveRating() {
     const stars  = override ? parseInt(override) : computedStars
     if (!stars || !ratingModal) return
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ formType: 'lead_rating', leadId: ratingModal.id, stars, override: !!override, overrideReason })
-        })
-        setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))
-      } catch {}
-    }
+    try {
+      await apiPost('lead_rating', { leadId: ratingModal.id, stars })
+      setLeads(p => p.map(l => l.id === ratingModal.id ? { ...l, stars } : l))
+    } catch {}
     setRatingModal(null)
     setSelections({})
     setOverride('')

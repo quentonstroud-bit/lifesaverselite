@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Star, Info, X } from 'lucide-react'
 import { useAuth } from '../../../context/AuthContext'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const BADGE_DEFS = [
   { key: 'first_referral',    name: 'First Referral',      desc: 'Submit your first lead',          icon: '🎯' },
@@ -29,9 +29,8 @@ export default function LSStars() {
   const [showTips,  setShowTips] = useState(false)
 
   useEffect(() => {
-    if (!WEBAPP_URL || !user?.email) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=ls_data&email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
+    if (!user?.email) { setLoading(false); return }
+    apiGet('ls_data')
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user?.email])

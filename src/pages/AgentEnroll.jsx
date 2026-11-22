@@ -1,16 +1,11 @@
 import React, { useState } from 'react'
-import { CheckCircle, ChevronRight, Copy, Check } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { CheckCircle, Mail } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { apiPost } from '../lib/api'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
-
-function generatePassword() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#'
-  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
 
 const LINES = ['Life', 'Health', 'Auto', 'Home', 'Annuities', 'Final Expense', 'Medicare', 'Other']
 const YEARS_OPTIONS = ['Less than 1 year', '1 to 3 years', '3 to 5 years', '5 to 10 years', '10+ years']
@@ -38,15 +33,13 @@ const INITIAL = {
 }
 
 export default function AgentEnroll() {
-  const navigate = useNavigate()
-  const { loginDirect } = useAuth()
+  const { requestLink } = useAuth()
   const [page, setPage] = useState(1)
   const [form, setForm] = useState(INITIAL)
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showContract, setShowContract] = useState(false)
-  const [generatedPassword, setGeneratedPassword] = useState('')
-  const [copied, setCopied] = useState(null)
+  const [error, setError] = useState('')
 
   function toggleLine(line) {
     setForm(p => ({
@@ -55,39 +48,21 @@ export default function AgentEnroll() {
     }))
   }
 
-  function copyToClipboard(text, field) {
-    navigator.clipboard.writeText(text)
-    setCopied(field)
-    setTimeout(() => setCopied(null), 2000)
-  }
-
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.agreed) return
     setLoading(true)
-    const pwd = generatePassword()
-    setGeneratedPassword(pwd)
+    setError('')
     try {
-      const payload = { formType: 'agent_enrollment', ...form, lines: form.lines.join(', '), states: form.states.join(', '), tempPassword: pwd }
-      await fetch(WEBAPP_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) })
-    } catch {
-      // proceed regardless — data sent best-effort
+      await apiPost('agent_enrollment', { ...form, lines: form.lines.join(', '), states: form.states.join(', ') })
+      // Prove email ownership with a single-use sign-in link instead of a shared password.
+      await requestLink(form.email)
+      setSubmitted(true)
+    } catch (err) {
+      setError(err.message || 'Could not submit. Please try again.')
     } finally {
       setLoading(false)
-      setSubmitted(true)
     }
-  }
-
-  function goToDashboard() {
-    loginDirect({
-      id: `ag-new-${Date.now()}`,
-      name: form.name,
-      agency: form.agency,
-      email: form.email,
-      phone: form.phone,
-      role: 'agent',
-    })
-    navigate('/dashboard/agent')
   }
 
   if (submitted) {
@@ -99,33 +74,16 @@ export default function AgentEnroll() {
               <CheckCircle size={32} className="text-success" />
             </div>
             <h1 className="text-3xl font-bold mb-2">Welcome to LifeSavers Elite</h1>
-            <p className="text-gray-400 text-sm">Your account has been created. Save your login credentials below.</p>
+            <p className="text-gray-400 text-sm">Your account has been created.</p>
           </div>
 
-          {/* Credentials card */}
-          <div className="bg-surface border border-gray-700 rounded-2xl p-6 mb-5">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Your Login Credentials</p>
-            <div className="flex flex-col gap-3">
-              <div className="bg-bg border border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Username (Email)</p>
-                  <p className="text-sm font-mono text-white">{form.email}</p>
-                </div>
-                <button onClick={() => copyToClipboard(form.email, 'email')} className="text-gray-400 hover:text-white transition-colors ml-3">
-                  {copied === 'email' ? <Check size={15} className="text-success" /> : <Copy size={15} />}
-                </button>
-              </div>
-              <div className="bg-bg border border-gray-700 rounded-xl px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Temporary Password</p>
-                  <p className="text-sm font-mono text-white">{generatedPassword}</p>
-                </div>
-                <button onClick={() => copyToClipboard(generatedPassword, 'pwd')} className="text-gray-400 hover:text-white transition-colors ml-3">
-                  {copied === 'pwd' ? <Check size={15} className="text-success" /> : <Copy size={15} />}
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-warning mt-4">⚠ Please change your password after your first login. These credentials will also be sent to your email.</p>
+          <div className="bg-surface border border-gray-700 rounded-2xl p-6 mb-5 text-center">
+            <Mail size={22} className="text-primary mx-auto mb-3" />
+            <p className="font-bold mb-1">Check your email</p>
+            <p className="text-gray-400 text-sm">
+              We sent a secure sign-in link to <span className="text-white">{form.email}</span>. It works once and expires in 15 minutes.
+              After you are in, you can set a password under Settings.
+            </p>
           </div>
 
           {/* Next steps */}
@@ -145,9 +103,9 @@ export default function AgentEnroll() {
             </div>
           </div>
 
-          <button onClick={goToDashboard} className="w-full bg-success hover:bg-green-400 text-black font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base">
-            Access My Dashboard <ChevronRight size={18} />
-          </button>
+          <Link to="/login" className="w-full bg-success hover:bg-green-400 text-black font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base">
+            Go to Sign In
+          </Link>
           <p className="text-gray-600 text-xs text-center mt-5">Sincerely, Quenton Stroud — Executive Manager, LifeSavers Elite</p>
         </div>
       </div>
@@ -171,7 +129,7 @@ export default function AgentEnroll() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
                   {[
                     { stat: '4,200+', label: 'Active LifeSavers' },
-                    { stat: '$2', label: 'Per accepted lead' },
+                    { stat: '$5', label: 'Service fee per paid lead' },
                     { stat: '48hr', label: 'Response window' },
                   ].map(({ stat, label }) => (
                     <div key={label} className="bg-surface border border-gray-800 rounded-xl py-6 px-4 text-center">
@@ -367,6 +325,7 @@ export default function AgentEnroll() {
                   >
                     {loading ? 'Submitting...' : 'Sign and Submit'}
                   </button>
+                  {error && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
                 </div>
               </div>
             </div>

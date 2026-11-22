@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { Clock, CheckCircle } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
+import { startPurchase, money } from '../../../lib/purchase'
+import { apiGet } from '../../../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
-const FILTERS = ['All', 'Life Insurance', 'Health Insurance', 'Final Expense', 'Annuity', 'Medicare', '5-Star Only']
-
-const PAYOUT_BY_STARS = { 1: 6, 2: 9, 3: 12, 4: 18, 5: 22.50 }
+const FILTERS = ['All', 'General life insurance', 'Final expense / burial', 'Cremation', 'Leave money / legacy', 'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', '5-Star Only']
 
 export default function AgentPool() {
   const { user }   = useAuth()
@@ -16,11 +15,11 @@ export default function AgentPool() {
   const [filter,   setFilter]   = useState('All')
   const [claiming, setClaiming] = useState(null)
   const [claimed,  setClaimed]  = useState([])
+  const [busy,     setBusy]     = useState(false)
+  const [error,    setError]    = useState('')
 
   useEffect(() => {
-    if (!WEBAPP_URL) { setLoading(false); return }
-    fetch(`${WEBAPP_URL}?query=pool_leads`)
-      .then(r => r.json())
+        apiGet('pool_leads')
       .then(d => { setPool(d.leads || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
@@ -33,23 +32,19 @@ export default function AgentPool() {
   })
 
   async function handleClaim(lead) {
-    const payout = PAYOUT_BY_STARS[lead.stars] || 12
-    setClaimed(p => [...p, lead.id])
-    setClaiming(null)
-    if (WEBAPP_URL) {
-      try {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            formType: 'claim_from_pool',
-            leadId: lead.id,
-            agentId: user?.email,
-            lifesaverPayout: payout,
-          })
-        })
-      } catch {}
+    setError('')
+    setBusy(true)
+    try {
+      const r = await startPurchase(lead)
+      if (r.free) {
+        setClaimed(p => [...p, lead.id])
+        setClaiming(null)
+      }
+    } catch (e) {
+      setError(e.message)
+      setClaiming(null)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -62,6 +57,10 @@ export default function AgentPool() {
           {!loading && <span className="text-warning">{filtered.filter(l => l.hoursLeft < 6).length} expiring soon</span>}
         </div>
       </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl px-4 py-3">{error}</div>
+      )}
 
       {/* Filter pills */}
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -124,10 +123,17 @@ export default function AgentPool() {
                     ))}
                   </div>
 
+                  {(lead.conditions?.length > 0 || lead.beneficiaryRelationships?.length > 0) && (
+                            <div className="bg-bg rounded-lg px-3 py-2 text-xs mb-4 flex flex-col gap-1">
+                      {lead.beneficiaryRelationships?.length > 0 && <p><span className="text-gray-500">Beneficiaries:</span> {lead.beneficiaryRelationships.join(', ')}</p>}
+                      {lead.conditions?.length > 0 && <p><span className="text-gray-500">Health conditions:</span> {lead.conditions.join(', ')}</p>}
+                    </div>
+                  )}
+
                   <p className="text-xs text-gray-500 mb-4">From {lead.lifesaverHandle}</p>
 
                   <button onClick={() => setClaiming(lead)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">
-                    Claim This Lead
+                    {lead.total > 0 ? `Buy This Lead - ${money(lead.total)}` : 'Claim Free Lead'}
                   </button>
                 </div>
               </div>
@@ -140,7 +146,7 @@ export default function AgentPool() {
       {claiming && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center px-4">
           <div className="bg-surface border border-gray-700 rounded-2xl p-6 max-w-sm w-full">
-            <h2 className="text-lg font-bold mb-2">Confirm Claim</h2>
+            <h2 className="text-lg font-bold mb-2">Confirm Purchase</h2>
             <p className="text-gray-400 text-sm mb-5">
               You are claiming {claiming.firstName} {claiming.lastInitial}. from the General Pool.
             </p>
@@ -154,17 +160,21 @@ export default function AgentPool() {
                 <StarRating rating={claiming.stars} size={14} />
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">LifeSaver payout</span>
-                <span className="font-semibold text-warning">-${(PAYOUT_BY_STARS[claiming.stars] || 12).toFixed(2)}</span>
+                <span className="text-gray-500">Lead price</span>
+                <span className="font-semibold">{money(claiming.price)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">LSE fee</span>
-                <span className="font-semibold text-primary">-$2.00</span>
+                <span className="text-gray-500">LSE service fee</span>
+                <span className="font-semibold">{money(claiming.fee)}</span>
+              </div>
+              <div className="flex justify-between border-t border-gray-800 pt-2">
+                <span className="text-gray-400">Total</span>
+                <span className="font-bold text-white">{money(claiming.total)}</span>
               </div>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setClaiming(null)} className="flex-1 border border-gray-700 text-gray-400 py-3 rounded-xl text-sm hover:border-gray-500 transition-colors">Cancel</button>
-              <button onClick={() => handleClaim(claiming)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">Confirm</button>
+              <button onClick={() => handleClaim(claiming)} disabled={busy} className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors">{busy ? 'Please wait...' : claiming.total > 0 ? 'Pay with Stripe' : 'Claim'}</button>
             </div>
           </div>
         </div>

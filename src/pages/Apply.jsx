@@ -2,8 +2,9 @@ import React, { useState } from 'react'
 import { MapPin, Clock, Zap, DollarSign, CheckCircle } from 'lucide-react'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
+import { useAuth } from '../context/AuthContext'
+import { apiPost } from '../lib/api'
 
-const WEBAPP_URL = import.meta.env.VITE_WEBAPP_URL || ''
 
 const POSITIONS = ['Outreach Specialist', 'Educator / Community Ambassador', 'Referral Partner', 'Open to any']
 const EMPLOYMENT_OPTIONS = ['Employed full-time', 'Employed part-time', 'Self-employed', 'Unemployed', 'Student', 'Retired']
@@ -18,6 +19,7 @@ const INITIAL = {
 
 export default function Apply() {
   const [form, setForm] = useState(INITIAL)
+  const { requestLink } = useAuth()
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -38,23 +40,15 @@ export default function Apply() {
     setError('')
 
     try {
-      const payload = {
-        formType: 'application',
+      await apiPost('application', {
         name: form.name, email: form.email, phone: form.phone,
         facebook: form.facebook, positions: form.positions.join(', '),
         employment: form.employment, insurance: form.insurance,
         referral: form.referral, excites: form.excites,
         resumeAttached: form.resumeFile ? 'Yes' : 'No',
-      }
-
-      if (WEBAPP_URL) {
-        await fetch(WEBAPP_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(payload),
-        })
-      }
+      })
+      // Email them a secure sign-in link so they can start Training right away.
+      await requestLink(form.email)
       setSubmitted(true)
     } catch {
       setError('Submission failed. Please try again or email us directly.')
@@ -73,13 +67,13 @@ export default function Apply() {
           <h1 className="text-3xl font-bold mb-3">Application Received</h1>
           <p className="text-gray-400 mb-2">Your next step is Training</p>
           <p className="text-gray-500 text-sm mb-8">
-            Watch the training modules to learn about LifeSavers Elite, your compensation, and how to get started. Your agent will be assigned to you shortly.
+            We emailed a secure sign-in link to <span className="text-white">{form.email}</span>. Click it to open the training modules, where you will learn about LifeSavers Elite, your compensation, and how to get started. Your agent will be assigned to you shortly.
           </p>
           <a
-            href="/dashboard/lifesaver/training"
+            href="/login"
             className="inline-flex items-center gap-2 bg-primary hover:bg-red-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors text-base"
           >
-            Start Training Modules
+            Go to Sign In
           </a>
         </div>
       </div>

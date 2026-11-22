@@ -2,12 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---- LifeSavers Elite website look: oxblood + gold, serif headings ---- */
+:root {
+  --ox-grad: linear-gradient(180deg, #b3163a 0%, #8b0f24 45%, #5a0618 100%);
+  --gold-grad: linear-gradient(135deg, #f3e0a6 0%, #c9a45c 45%, #8c6a2e 100%);
+  --gold-line: rgba(201, 164, 92, 0.45);
+}
+h1, h2 { font-family: "Playfair Display", Georgia, "Times New Roman", serif; letter-spacing: -0.01em; }
+/* Solid brand-red surfaces (buttons, logo, active tabs) use the site's oxblood gradient */
+.bg-primary { background-image: var(--ox-grad); color: #f8efdc; }
+.bg-primary:hover:not(:disabled) { filter: brightness(1.12); }
+.text-gold-grad { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
 * {
   box-sizing: border-box;
 }
 
 body {
-  background-color: #080d17;
+  background-color: #0b0a0c;
   color: #ffffff;
   font-family: 'Inter', sans-serif;
   margin: 0;
@@ -19,10 +31,10 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d1321;
+  background: #121014;
 }
 ::-webkit-scrollbar-thumb {
-  background: #53080E;
+  background: #8b0f24;
   border-radius: 3px;
 }
 

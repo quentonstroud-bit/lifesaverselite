@@ -17,13 +17,220 @@ var SPREADSHEET_ID = '1aQ6PZ5zoSfnHZ0XkluZXwLFWjxwPPgeNVy1zKCQU0WA'
 var ADMIN_EMAIL    = 'qcandoit@gmail.com'
 var CAL_URL        = 'https://cal.com/quenton-stroud/30min'
 var SIGN_OFF       = 'Sincerely,<br><strong>Quenton Stroud</strong><br>Executive Manager, LifeSavers Elite'
-var PLATFORM_FEE   = 2.00
+var LEAD_FEE       = 5.00   // LSE service fee on every paid lead
+var PRICE_BY_STARS = { 1: 0, 2: 5, 3: 18, 4: 24, 5: 30 }  // lead price the agent pays, by star rating
+var STRIPE_PCT     = 0.029  // fallback estimate only; real fee is read from Stripe
+var STRIPE_FLAT    = 0.30
+
+// Star score thresholds (score is 0-100, see scoreLead). First match wins; anything lower = 1 star.
+var STAR_THRESHOLDS = [ [85, 5], [70, 4], [55, 3], [45, 2] ]
+
+// LifeSaver levels by count of leads rated 2+ stars. Cash bonus is one-time.
+var LEVELS = [
+  { name: 'Supporter',  min: 0,   bonus: 0   },
+  { name: 'Steward',    min: 25,  bonus: 50  },
+  { name: 'Specialist', min: 60,  bonus: 100 },
+  { name: 'Sentinel',   min: 100, bonus: 250 }
+]
+var SUPREME_MIN   = 500   // lifetime qualifying leads needed to be eligible for Supreme
+var SUPREME_BONUS = 500   // One-time per LifeSaver, ever (owner decision).
+
+// ----------------------------------------------
+// PRICING, SCORING AND LEVELS (pure functions)
+// ----------------------------------------------
+function round2(n) { return Math.round(n * 100) / 100 }
+
+function leadPrice(stars) { return PRICE_BY_STARS[stars] || 0 }
+function leadFee(stars)   { return leadPrice(stars) > 0 ? LEAD_FEE : 0 }
+function leadTotal(stars) { return round2(leadPrice(stars) + leadFee(stars)) }
+
+// Health conditions a LifeSaver can check off (important for life insurance underwriting).
+var HEALTH_CONDITIONS = [
+  'Diabetes', 'Heart disease or heart attack', 'Stroke', 'Cancer (current or past)',
+  'Kidney disease or renal failure', 'High blood pressure', 'COPD, emphysema or lung disease',
+  'Liver disease or hepatitis', 'HIV/AIDS', "Alzheimer's or dementia", 'Alcohol or drug treatment'
+]
+var NONE_OF_THESE = 'None of these'
+var RELATIONSHIPS = ['Spouse', 'Son', 'Daughter', 'Parent', 'Sibling', 'Other family', 'Friend', 'Other']
+var POLICY_TYPES = ['General life insurance', 'Final expense / burial', 'Cremation', 'Leave money / legacy',
+  'Mortgage protection', 'IUL', 'Annuity', 'Safe retirement planning', 'Other / Not sure']
+var TIMELINES = ['Same day coverage', '1 week', '2 weeks', '3 weeks', '4 weeks']
+// Points for the purchase timeline (max 20). The three old values are kept so leads submitted before the change still score.
+var TIMELINE_POINTS = { 'Same day coverage': 20, '1 week': 16, '2 weeks': 12, '3 weeks': 8, '4 weeks': 4,
+  '1 to 3 months': 20, '3 to 6 months': 12, '6 to 12 months': 6 }
+var US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO',
+  'MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']
+var CONDITIONS_MAX_POINTS = 7   // "None of these" = 7; each condition checked takes 1 point off, floor 0
+var MAX_BENEFICIARY_ROWS = 5
+
+// Strip characters that would break the stored text format or an email, and cap length.
+function cleanText(v, max) {
+  return String(v === undefined || v === null ? '' : v).replace(/[;()\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+}
+
+// Keep a value only if it is one of the allowed options.
+function cleanChoice(v, list) {
+  v = String(v === undefined || v === null ? '' : v).trim()
+  return list.indexOf(v) !== -1 ? v : ''
+}
+function cleanState(v) {
+  v = String(v === undefined || v === null ? '' : v).toUpperCase().trim()
+  return US_STATES.indexOf(v) !== -1 ? v : ''
+}
+function firstNameOf(full) { return String(full || '').trim().split(/\s+/)[0] || '' }
+function lastInitialOf(full) {
+  var parts = String(full || '').trim().split(/\s+/)
+  return parts.length > 1 ? parts[parts.length - 1].charAt(0) : 'X'
+}
+
+function cleanConditions(arr) {
+  var out = [], hasNone = false
+  if (Object.prototype.toString.call(arr) !== '[object Array]') return out
+  for (var i = 0; i < arr.length && i < 20; i++) {
+    var c = String(arr[i])
+    if (c === NONE_OF_THESE) hasNone = true
+    else if (HEALTH_CONDITIONS.indexOf(c) !== -1 && out.indexOf(c) === -1) out.push(c)
+  }
+  if (!out.length && hasNone) out.push(NONE_OF_THESE)   // "None" only counts when nothing else is checked
+  return out
+}
+
+function cleanBeneficiaries(arr) {
+  var out = []
+  if (Object.prototype.toString.call(arr) !== '[object Array]') return out
+  for (var i = 0; i < arr.length && out.length < MAX_BENEFICIARY_ROWS; i++) {
+    var b = arr[i] || {}
+    var rel = String(b.relationship || '')
+    out.push({ name: cleanText(b.name, 60), relationship: RELATIONSHIPS.indexOf(rel) !== -1 ? rel : (rel ? 'Other' : '') })
+  }
+  return out
+}
+
+// Stored in the Leads sheet as readable text: "Jane Doe (Spouse); Sam Doe (Child)" and "Diabetes; Stroke".
+function beneficiariesToText(list) {
+  return list.filter(function (b) { return b.name || b.relationship })
+    .map(function (b) { return (b.name || '?') + ' (' + (b.relationship || '?') + ')' }).join('; ')
+}
+function parseBeneficiaries(text) {
+  var out = []
+  String(text || '').split('; ').forEach(function (part) {
+    var m = /^(.*) \((.+)\)$/.exec(part)
+    if (m) out.push({ name: m[1] === '?' ? '' : m[1], relationship: m[2] === '?' ? '' : m[2] })
+  })
+  return out
+}
+function parseConditions(text) {
+  return String(text || '').split('; ').filter(function (c) { return c === NONE_OF_THESE || HEALTH_CONDITIONS.indexOf(c) !== -1 })
+}
+
+// Score a referral from how complete and strong the submitted form is. 0-100.
+function scoreLead(d) {
+  var pts = 0
+  var phoneDigits = String(d.phone || '').replace(/\D/g, '')
+  if (phoneDigits.length >= 10) pts += 10
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email || '').trim())) pts += 5
+  if (cleanState(d.state)) pts += 5   // the state is what counts (agents are licensed by state); city is optional
+
+  // Beneficiaries: 15 points = count (8) + each listed beneficiary named with a relationship (7)
+  var ben = parseInt(d.beneficiaries, 10) || 0
+  if (ben >= 2) pts += 8
+  else if (ben === 1) pts += 5
+  var rows = Math.min(ben, MAX_BENEFICIARY_ROWS)
+  if (rows > 0) {
+    var det = d.beneficiaryDetails || [], complete = 0
+    for (var b = 0; b < rows && b < det.length; b++) {
+      if (det[b] && String(det[b].name || '').trim().length >= 2 && String(det[b].relationship || '').trim()) complete++
+    }
+    pts += Math.round(7 * complete / rows)
+  }
+
+  // Health: 20 points = rating (8) + conditions reviewed (7) + smoking (5)
+  var health = parseInt(d.healthRating, 10) || 0
+  if (health >= 7) pts += 8
+  else if (health >= 4) pts += 4
+
+  // Conditions: not answered = 0. "None of these" = 7. Otherwise 7 minus 1 per condition checked, never below 0.
+  var conds = d.healthConditions
+  if (conds && conds.length > 0) {
+    pts += conds.indexOf(NONE_OF_THESE) !== -1 ? CONDITIONS_MAX_POINTS : Math.max(0, CONDITIONS_MAX_POINTS - conds.length)
+  }
+
+  var smoking = String(d.smoking || '')
+  if (smoking === 'Non-Smoker') pts += 5
+  else if (smoking === 'Former Smoker') pts += 3
+  else if (smoking === 'Smoker') pts += 2
+
+  var policy = String(d.policyInterest || '')
+  if (policy && policy.indexOf('Not sure') === -1) pts += 15
+  else if (policy) pts += 3
+
+  var tl = String(d.timeline || '')
+  if (Object.prototype.hasOwnProperty.call(TIMELINE_POINTS, tl)) pts += TIMELINE_POINTS[tl]
+
+  var notesLen = String(d.notes || '').trim().length
+  if (notesLen >= 150) pts += 10
+  else if (notesLen >= 30) pts += 6
+  else if (notesLen > 0) pts += 3
+
+  return pts
+}
+
+function starsFromScore(score) {
+  for (var i = 0; i < STAR_THRESHOLDS.length; i++) {
+    if (score >= STAR_THRESHOLDS[i][0]) return STAR_THRESHOLDS[i][1]
+  }
+  return 1
+}
+
+// Rebuild the scoring input from a Leads sheet row (used for leads submitted before auto-scoring).
+function leadFromRow(row) {
+  return { phone: row[3], email: row[4], city: row[5], state: row[6], age: row[7],
+           beneficiaries: row[8], healthRating: row[9], smoking: row[10],
+           policyInterest: row[11], timeline: row[12], notes: row[13],
+           beneficiaryDetails: parseBeneficiaries(row[21]), healthConditions: parseConditions(row[22]) }
+}
+
+function starsForRow(row) {
+  var saved = Number(row[17]) || 0
+  if (saved >= 1 && saved <= 5) return saved
+  return starsFromScore(scoreLead(leadFromRow(row)))
+}
+
+function levelForCount(n) {
+  var lvl = LEVELS[0]
+  for (var i = 0; i < LEVELS.length; i++) { if (n >= LEVELS[i].min) lvl = LEVELS[i] }
+  return lvl
+}
+
+function nextLevelInfo(n) {
+  for (var i = 0; i < LEVELS.length; i++) {
+    if (n < LEVELS[i].min) return { name: LEVELS[i].name, at: LEVELS[i].min, remaining: LEVELS[i].min - n }
+  }
+  if (n < SUPREME_MIN) return { name: 'Supreme', at: SUPREME_MIN, remaining: SUPREME_MIN - n }
+  return null
+}
+
+function escHtml(v) {
+  return String(v === undefined || v === null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function serverKeyOk(key) {
+  var expected = PropertiesService.getScriptProperties().getProperty('SERVER_KEY')
+  return !!expected && String(key || '') === expected
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON)
+}
 
 // ----------------------------------------------
 // ENTRY POINT
 // ----------------------------------------------
 function doGet(e) {
   var query = e && e.parameter && e.parameter.query
+  // Health check only. Every data/auth query needs the shared SERVER_KEY (browsers never call this directly).
+  if (query && !serverKeyOk(e.parameter.key)) return respond(403, 'Forbidden')
   if (query === 'dashboard_stats')    return getDashboardStats()
   if (query === 'validate_login')     return validateLogin(e.parameter)
   if (query === 'ls_data')            return getLSData(e.parameter)
@@ -35,6 +242,11 @@ function doGet(e) {
   if (query === 'admin_agents')       return getAdminAgents()
   if (query === 'admin_leads')        return getAdminLeads()
   if (query === 'admin_revenue')      return getAdminRevenue()
+  if (query === 'lead_quote')         return getLeadQuote(e.parameter)
+  if (query === 'auth_lookup')        return jsonOut({ status: 200, user: lookupUser(e.parameter.email) })
+  if (query === 'auth_credential')    return authGetCredential(e.parameter)
+  if (query === 'admin_payout_report') return getPayoutReport(e.parameter)
+  if (query === 'admin_finance')      return getAdminFinance(e.parameter)
   return ContentService
     .createTextOutput(JSON.stringify({ status: 200, message: 'LifeSavers Elite API is live.' }))
     .setMimeType(ContentService.MimeType.JSON)
@@ -157,6 +369,15 @@ function getLSData(params) {
   var leadsData  = leadsSheet ? leadsSheet.getDataRange().getValues() : []
   var referrals  = []
   var totalAccepted = 0
+  var qualified  = 0
+
+  // Net payout actually banked per lead (from the ledger)
+  var payoutByLead = {}
+  var txSheet0 = ss.getSheetByName('Transactions')
+  var txData0  = txSheet0 ? txSheet0.getDataRange().getValues() : []
+  for (var q = 1; q < txData0.length; q++) {
+    if (txData0[q][3] === 'LIFESAVER_PAYOUT') payoutByLead[String(txData0[q][1])] = (payoutByLead[String(txData0[q][1])] || 0) + (parseFloat(txData0[q][4]) || 0)
+  }
   var now   = new Date()
   var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   var weeklyLeadsCount = 0
@@ -170,7 +391,8 @@ function getLSData(params) {
     if (!matchById && !matchHandle) continue
 
     var status = row[16]
-    var stars  = Number(row[17]) || 0
+    var stars  = starsForRow(row)
+    if (stars >= 2) qualified++
     var ts     = new Date(row[1])
     if (status === 'ACCEPTED') totalAccepted++
     if (ts >= weekAgo && (status === 'ACCEPTED' || status === 'PENDING')) weeklyLeadsCount++
@@ -181,7 +403,7 @@ function getLSData(params) {
       policy: row[11],
       status: status,
       stars:  stars,
-      earned: status === 'ACCEPTED' ? (stars * 6) : null,
+      earned: status === 'ACCEPTED' ? (payoutByLead[String(row[0])] || 0) : null,
       date:   ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     })
   }
@@ -196,7 +418,7 @@ function getLSData(params) {
 
   for (var j = 1; j < txData.length; j++) {
     var tx = txData[j]
-    if (tx[3] === 'LIFESAVER_PAYOUT' && String(tx[5]) === lsId) {
+    if ((tx[3] === 'LIFESAVER_PAYOUT' || tx[3] === 'LEVEL_BONUS') && String(tx[5]) === lsId) {
       var amt = parseFloat(tx[4]) || 0
       totalEarned += amt
       if (new Date(tx[0]) >= weekAgo) weeklyEarned += amt
@@ -223,7 +445,12 @@ function getLSData(params) {
     starsBalance: starsBalance,
     totalSubmitted: referrals.length,
     totalAccepted: totalAccepted,
+    qualifiedLeads: qualified,
+    level: levelForCount(qualified).name,
+    nextLevel: nextLevelInfo(qualified),
+    isSupreme: (function () { var sp = getMonthlySupreme(leadsData, new Date()); return !!(sp && lsId && String(sp.lsId) === String(lsId)) })(),
     weeklyLeadsCount: weeklyLeadsCount,
+    totals: (function () { var t = lifesaverTotals(ss, txData, lsId, new Date()); return t })(),
     weeklyBreakdown: [],
     agent: agentInfo,
     leaderboard: leaderboard,
@@ -299,13 +526,16 @@ function getAgentLeads(params) {
       var hoursLeft = Math.max(0, Math.round((expiry - now) / 3600000))
       leads.push({
         id: row[0],
-        firstName: String(row[2]).split(' ')[0],
-        lastInitial: (String(row[2]).split(' ')[1] || 'X')[0],
+        firstName: firstNameOf(row[2]),
+        lastInitial: lastInitialOf(row[2]),
         city: row[5], state: row[6],
         hoursLeft: hoursLeft,
-        stars: Number(row[17]) || 0,
+        stars: starsForRow(row),
+        price: leadPrice(starsForRow(row)), fee: leadFee(starsForRow(row)), total: leadTotal(starsForRow(row)),
         age: row[7], health: row[9], smoking: row[10],
         beneficiaries: row[8], policy: row[11], timeline: row[12],
+        conditions: parseConditions(row[22]),
+        beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
         lifesaverHandle: row[15], notes: row[13]
       })
     }
@@ -387,7 +617,9 @@ function getAgentSpend(params) {
     if (txTs < weekAgo) continue
 
     var leadId = String(tx[1])
-    if (!txMap[leadId]) txMap[leadId] = { leadId: leadId, lseFee: 0, lifesaverPayout: 0, status: tx[6], lifesaverId: String(tx[5]) }
+    if (!txMap[leadId]) txMap[leadId] = { leadId: leadId, lseFee: 0, lifesaverPayout: 0, charged: 0, refunded: 0, status: tx[6], lifesaverId: String(tx[5]) }
+    if (tx[3] === 'AGENT_CHARGE') txMap[leadId].charged += parseFloat(tx[4]) || 0
+    if (tx[3] === 'REFUND') txMap[leadId].refunded += parseFloat(tx[4]) || 0
 
     if (tx[3] === 'LSE_FEE') {
       txMap[leadId].lseFee += parseFloat(tx[4]) || 0
@@ -414,7 +646,9 @@ function getAgentSpend(params) {
       lifesaverHandle: lead.handle || t.lifesaverId,
       lseFee: t.lseFee,
       lifesaverPayout: t.lifesaverPayout,
-      status: t.status,
+      charged: round2(t.charged),
+      refunded: round2(t.refunded),
+      status: String(t.status).indexOf('STRIPE:') === 0 ? 'PURCHASED' : t.status,
       date: lead.ts ? new Date(lead.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
     }
   })
@@ -424,7 +658,8 @@ function getAgentSpend(params) {
     transactions: transactions,
     totalLSEFees: totalLSEFees,
     totalPayouts: totalPayouts,
-    acceptedCount: acceptedCount
+    acceptedCount: acceptedCount,
+    periods: agentTotals(txData, agentEmail, new Date())
   })).setMimeType(ContentService.MimeType.JSON)
 }
 
@@ -449,13 +684,16 @@ function getPoolLeads() {
 
     leads.push({
       id: row[0],
-      firstName: String(row[2]).split(' ')[0],
-      lastInitial: (String(row[2]).split(' ')[1] || 'X')[0],
+      firstName: firstNameOf(row[2]),
+      lastInitial: lastInitialOf(row[2]),
       city: row[5], state: row[6],
       hoursLeft: hoursLeft,
-      stars: Number(row[17]) || 0,
+      stars: starsForRow(row),
+      price: leadPrice(starsForRow(row)), fee: leadFee(starsForRow(row)), total: leadTotal(starsForRow(row)),
       age: row[7], health: row[9], smoking: row[10],
       beneficiaries: row[8], policy: row[11], timeline: row[12],
+      conditions: parseConditions(row[22]),
+      beneficiaryRelationships: parseBeneficiaries(row[21]).map(function (b) { return b.relationship }),
       lifesaverHandle: row[15],
       source: String(row[19] || 'Available in pool')
     })
@@ -642,7 +880,7 @@ function getAdminLeads() {
     var ts        = new Date(row[1])
     leads.push({
       id:        row[0],
-      name:      String(row[2]).split(' ')[0] + ' ' + (String(row[2]).split(' ')[1] || '')[0] + '.',
+      name:      firstNameOf(row[2]) + ' ' + lastInitialOf(row[2]) + '.',
       policy:    row[11],
       lifesaver: row[15] || lsId,
       agent:     agAgency,
@@ -782,14 +1020,22 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents)
     var type = data.formType
+    if (!serverKeyOk(data.serverKey)) return respond(403, 'Forbidden')
 
     if (type === 'application')        return handleApplication(data)
     if (type === 'agent_enrollment')   return handleAgentEnrollment(data)
     if (type === 'referral_submit')    return handleReferralSubmit(data)
     if (type === 'lead_rating')        return handleLeadRating(data)
-    if (type === 'lead_accept')        return handleLeadAccept(data)
+    if (type === 'lead_accept')        return handleFreeUnlock(data)
     if (type === 'lead_decline')       return handleLeadDecline(data)
-    if (type === 'claim_from_pool')    return handleClaimFromPool(data)
+    if (type === 'claim_from_pool')    return handleFreeUnlock(data)
+    if (type === 'payment_complete')   return handlePaymentComplete(data)
+    if (type === 'auth_set_credential') return authSetCredential(data)
+    if (type === 'auth_throttle')      return authThrottle(data)
+    if (type === 'auth_consume')       return authConsume(data)
+    if (type === 'send_magic_link')    return sendMagicLink(data)
+    if (type === 'admin_mark_paid')    return handleMarkPaid(data)
+    if (type === 'refund_recorded')    return handleRefundRecorded(data)
     if (type === 'approve_lifesaver')  return respond(200, 'Noted - add to Users sheet manually to activate')
 
     return respond(400, 'Unknown form type: ' + type)
@@ -830,8 +1076,7 @@ function handleAgentEnrollment(d) {
   sheet.appendRow([
     ts, d.name, d.agency, d.email, d.phone,
     d.license, d.states, d.years, d.lines,
-    d.payoutStructure, d.hearAbout, d.paymentMethod,
-    d.tempPassword || ''
+    d.payoutStructure, d.hearAbout, d.paymentMethod
   ])
 
   sendEmail(ADMIN_EMAIL, 'New Agent/Broker Application - ' + d.agency, agentAppEmailBody(d))
@@ -842,20 +1087,51 @@ function handleAgentEnrollment(d) {
 // ----------------------------------------------
 // REFERRAL SUBMISSION
 // ----------------------------------------------
+// Digits only (checkout validates /^LD-\d+$/). Milliseconds plus 3 random digits, re-rolled if it already exists.
+function newLeadId(sheet) {
+  var used = {}, rows = sheet.getDataRange().getValues()
+  for (var i = 1; i < rows.length; i++) used[String(rows[i][0])] = true
+  var id
+  do { id = 'LD-' + (Date.now() * 1000 + Math.floor(Math.random() * 1000)) } while (used[id])
+  return id
+}
+
 function handleReferralSubmit(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Leads')
   var ts    = new Date().toISOString()
-  var leadId = 'LD-' + Date.now()
+  var leadId = ''
   var expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  var first = cleanText(d.firstName, 40), last = cleanText(d.lastName, 40)
+  if (!first || !last) return respond(400, 'First and last name are required')
+  d.leadName = first + ' ' + last
+  d.state = cleanState(d.state)
+  d.city = cleanText(d.city, 60)
+  d.policyInterest = cleanChoice(d.policyInterest, POLICY_TYPES)
+  d.timeline = cleanChoice(d.timeline, TIMELINES)
+  d.beneficiaryDetails = cleanBeneficiaries(d.beneficiaryDetails)
+  d.healthConditions   = cleanConditions(d.healthConditions)
+  var stars  = starsFromScore(scoreLead(d))
 
+  // Unique id, generated and saved under a lock so two simultaneous referrals can never share one.
+  var lock = LockService.getScriptLock()
+  lock.waitLock(20000)
+  try {
+  leadId = newLeadId(sheet)
+  // Columns 21-23: PoolSource (unused here), BeneficiaryDetails, HealthConditions
   sheet.appendRow([
     leadId, ts, d.leadName, d.phone, d.email || '',
     d.city || '', d.state || '', d.age, d.beneficiaries || 0,
     d.healthRating, d.smoking, d.policyInterest, d.timeline,
     d.notes || '', d.lifesaverId, d.lifesaverHandle,
-    'PENDING', '', expiry, PLATFORM_FEE
+    'PENDING', stars, expiry, leadFee(stars),
+    '', beneficiariesToText(d.beneficiaryDetails), d.healthConditions.join('; ')
   ])
+  } finally {
+    lock.releaseLock()
+  }
+
+  if (stars >= 2) awardLevelBonuses(ss, d.lifesaverId, d.lifesaverHandle)
 
   sendEmail(d.lifesaverEmail || ADMIN_EMAIL,
     'Your referral for ' + d.leadName.split(' ')[0] + ' was submitted successfully',
@@ -875,50 +1151,26 @@ function handleReferralSubmit(d) {
 // LEAD RATING
 // ----------------------------------------------
 function handleLeadRating(d) {
+  // Reached only through the authenticated gateway, which restricts this action to admins.
+  var stars = parseInt(d.stars, 10)
+  if (!(stars >= 1 && stars <= 5)) return respond(400, 'Stars must be 1-5')
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('Leads')
   var data  = sheet.getDataRange().getValues()
-  var ts    = new Date().toISOString()
-
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === d.leadId) {
-      sheet.getRange(i + 1, 18).setValue(d.stars)
-      if (d.override) sheet.getRange(i + 1, 19).setValue('OVERRIDE: ' + d.overrideReason + ' at ' + ts)
-      break
+      if (data[i][16] === 'ACCEPTED') return respond(409, 'Lead already purchased')
+      sheet.getRange(i + 1, 18).setValue(stars)
+      sheet.getRange(i + 1, 20).setValue(leadFee(stars))
+      return respond(200, 'Rating saved')
     }
   }
-  return respond(200, 'Rating saved')
+  return respond(404, 'Lead not found')
 }
 
 // ----------------------------------------------
-// LEAD ACCEPT
+// PURCHASE ELIGIBILITY + QUOTE
 // ----------------------------------------------
-function handleLeadAccept(d) {
-  var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
-  var leadsSheet = ss.getSheetByName('Leads')
-  var txSheet    = ss.getSheetByName('Transactions')
-  var data       = leadsSheet.getDataRange().getValues()
-  var ts         = new Date().toISOString()
-
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0] === d.leadId) {
-      var row = data[i]
-      leadsSheet.getRange(i + 1, 17).setValue('ACCEPTED')
-      txSheet.appendRow([ts, d.leadId, d.agentId, 'LSE_FEE',           PLATFORM_FEE,      row[14], 'ACCEPTED'])
-      txSheet.appendRow([ts, d.leadId, d.agentId, 'LIFESAVER_PAYOUT',  d.lifesaverPayout, row[14], 'ACCEPTED'])
-
-      var lsEmail = getLSEmailById(ss, String(row[14]))
-      if (lsEmail) {
-        sendEmail(lsEmail,
-          'Your referral for ' + String(row[2]).split(' ')[0] + ' was accepted',
-          lifesaverAcceptBody(row, d))
-      }
-      break
-    }
-  }
-  return respond(200, 'Lead accepted')
-}
-
 function getLSEmailById(ss, lsId) {
   var usersSheet = ss.getSheetByName('Users')
   if (!usersSheet) return null
@@ -929,6 +1181,737 @@ function getLSEmailById(ss, lsId) {
   return null
 }
 
+function isAgentEmail(ss, email) {
+  var sh = ss.getSheetByName('Agent_Broker_Applications')
+  if (!sh) return false
+  var rows = sh.getDataRange().getValues()
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][3] || '').toLowerCase().trim() === email) return true
+  }
+  return false
+}
+
+// Returns '' if the agent may buy this lead, otherwise a reason string.
+function purchaseBlockReason(ss, row, agentEmail) {
+  if (!agentEmail || !isAgentEmail(ss, agentEmail)) return 'Unknown agent'
+  var status = row[16]
+  if (status === 'ACCEPTED') return 'Lead already purchased'
+  if (status === 'PENDING') {
+    var assigned = String(getAgentEmailForLifeSaver(row[14]) || '').toLowerCase().trim()
+    if (assigned !== agentEmail) return 'Lead is assigned to another agent'
+    return ''
+  }
+  if (status === 'POOL') return ''
+  return 'Lead is not available'
+}
+
+// Called only by the Vercel checkout function (shared secret). Never trust amounts from a browser.
+function getLeadQuote(params) {
+  if (!serverKeyOk(params.key)) return jsonOut({ ok: false, error: 'Not authorized' })
+  var agentEmail = String(params.agentEmail || '').toLowerCase().trim()
+  var ss   = SpreadsheetApp.openById(SPREADSHEET_ID)
+  var data = ss.getSheetByName('Leads').getDataRange().getValues()
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === params.leadId) {
+      var reason = purchaseBlockReason(ss, data[i], agentEmail)
+      if (reason) return jsonOut({ ok: false, error: reason })
+      var stars = starsForRow(data[i])
+      return jsonOut({
+        ok: true, leadId: params.leadId, stars: stars,
+        price: leadPrice(stars), fee: leadFee(stars), total: leadTotal(stars),
+        label: String(data[i][2]).split(' ')[0] + ' - ' + data[i][11]
+      })
+    }
+  }
+  return jsonOut({ ok: false, error: 'Lead not found' })
+}
+
+function agentPurchaseBody(row, stars) {
+  return '<h2 style="color:#4ade80;">Lead unlocked: ' + escHtml(row[2]) + '</h2>'
+    + '<p><strong>Name:</strong> ' + escHtml(row[2]) + '</p>'
+    + '<p><strong>Phone:</strong> ' + escHtml(row[3]) + '</p>'
+    + '<p><strong>Email:</strong> ' + escHtml(row[4]) + '</p>'
+    + '<p><strong>Location:</strong> ' + escHtml(row[5]) + ', ' + escHtml(row[6]) + '</p>'
+    + '<p><strong>Age:</strong> ' + escHtml(row[7]) + ' | <strong>Beneficiaries:</strong> ' + escHtml(row[8])
+    + ' | <strong>Health:</strong> ' + escHtml(row[9]) + '/10 | <strong>Smoking:</strong> ' + escHtml(row[10]) + '</p>'
+    + '<p><strong>Beneficiaries:</strong> ' + escHtml(row[21] || 'Not provided') + '</p>'
+    + '<p><strong>Health conditions:</strong> ' + escHtml(row[22] || 'Not provided') + '</p>'
+    + '<p><strong>Policy interest:</strong> ' + escHtml(row[11]) + ' | <strong>Timeline:</strong> ' + escHtml(row[12]) + '</p>'
+    + '<p><strong>Star rating:</strong> ' + stars + ' / 5</p>'
+    + '<p><strong>Notes:</strong> ' + escHtml(row[13]) + '</p>'
+    + '<p><strong>Referred by:</strong> ' + escHtml(row[15]) + '</p>'
+}
+
+function lifesaverPaidBody(row, stars, payout) {
+  return '<h2 style="color:#4ade80;">Your referral was purchased.</h2>'
+    + '<p>Your referral for <strong>' + escHtml(row[2]) + '</strong> was purchased by an agent.</p>'
+    + '<p><strong>Star Rating:</strong> ' + stars + ' / 5</p>'
+    + '<p><strong>You Earned:</strong> $' + payout.toFixed(2) + ' (after processing fees)</p>'
+    + '<p><strong>Payout Date:</strong> Next Sunday</p>'
+}
+
+// ----------------------------------------------
+// FREE (1-STAR) UNLOCK. Paid leads must go through Stripe Checkout.
+// ----------------------------------------------
+function handleFreeUnlock(d) {
+  var lock = LockService.getScriptLock()
+  lock.waitLock(20000)
+  try {
+    var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
+    var leadsSheet = ss.getSheetByName('Leads')
+    var txSheet    = ss.getSheetByName('Transactions')
+    var data       = leadsSheet.getDataRange().getValues()
+    var agentEmail = String(d.agentEmail || d.agentId || '').toLowerCase().trim()
+    var ts         = new Date().toISOString()
+
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] !== d.leadId) continue
+      var row = data[i]
+      var reason = purchaseBlockReason(ss, row, agentEmail)
+      if (reason) return respond(409, reason)
+      var stars = starsForRow(row)
+      if (leadTotal(stars) > 0) return respond(402, 'Payment required')
+
+      leadsSheet.getRange(i + 1, 17).setValue('ACCEPTED')
+      txSheet.appendRow([ts, d.leadId, agentEmail, 'FREE_UNLOCK', 0, row[14], 'FREE'])
+      sendEmail(agentEmail, 'Lead unlocked: ' + String(row[2]).split(' ')[0], agentPurchaseBody(row, stars))
+      var lsEmail = getLSEmailById(ss, String(row[14]))
+      if (lsEmail) sendEmail(lsEmail, 'Your referral for ' + String(row[2]).split(' ')[0] + ' was accepted', lifesaverPaidBody(row, stars, 0))
+      return respond(200, 'Lead unlocked')
+    }
+    return respond(404, 'Lead not found')
+  } finally {
+    lock.releaseLock()
+  }
+}
+
+// ----------------------------------------------
+// PAYMENT COMPLETE (called by the Vercel Stripe webhook, shared secret)
+// ----------------------------------------------
+function handlePaymentComplete(d) {
+  if (!serverKeyOk(d.serverKey)) return respond(403, 'Not authorized')
+  var lock = LockService.getScriptLock()
+  lock.waitLock(20000)
+  try {
+    var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
+    var leadsSheet = ss.getSheetByName('Leads')
+    var txSheet    = ss.getSheetByName('Transactions')
+    var source     = 'STRIPE:' + d.sessionId
+    var ts         = new Date().toISOString()
+    var agentEmail = String(d.agentEmail || '').toLowerCase().trim()
+
+    var piTag      = '|pi:' + String(d.paymentIntent || '')
+
+    // Idempotency: Stripe retries webhooks. Compare the session part exactly.
+    var txData = txSheet.getDataRange().getValues()
+    for (var t = 1; t < txData.length; t++) {
+      if (String(txData[t][6]).split('|')[0] === source) return respond(200, 'Already processed')
+    }
+
+    var data = leadsSheet.getDataRange().getValues()
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] !== d.leadId) continue
+      var row   = data[i]
+      var stars = starsForRow(row)
+      var price = leadPrice(stars), fee = leadFee(stars), total = leadTotal(stars)
+      var paid  = round2((Number(d.amountTotal) || 0) / 100)
+
+      // Paid the wrong amount, or someone else already bought it: do not unlock. Flag for refund.
+      var blocked = ''
+      if (Math.abs(paid - total) > 0.005) blocked = 'AMOUNT_MISMATCH'
+      else if (row[16] === 'ACCEPTED') blocked = 'ALREADY_PURCHASED'
+      var stripeFee = (d.stripeFee === undefined || d.stripeFee === null || d.stripeFee === '')
+        ? round2(paid * STRIPE_PCT + STRIPE_FLAT) : round2(Number(d.stripeFee))
+
+      // Every charge is gross income, whether or not the lead unlocks.
+      txSheet.appendRow([ts, d.leadId, agentEmail, 'AGENT_CHARGE', paid, row[14], source + piTag])
+      if (blocked) {
+        txSheet.appendRow([ts, d.leadId, agentEmail, 'STRIPE_FEE', stripeFee, row[14], source + piTag])
+        txSheet.appendRow([ts, d.leadId, agentEmail, 'NEEDS_REFUND', paid, row[14], source + piTag + '|' + blocked])
+        sendEmail(ADMIN_EMAIL, 'ACTION: refund needed (' + blocked + ') for ' + d.leadId,
+          '<p>Stripe session ' + escHtml(d.sessionId) + ' paid $' + paid.toFixed(2) + ' for lead ' + escHtml(d.leadId)
+          + ' (' + blocked + '). Agent: ' + escHtml(agentEmail) + '. Refund this payment in Stripe.</p>')
+        return respond(200, 'Flagged for refund')
+      }
+
+      var payout = Math.max(0, round2(price - stripeFee))   // LifeSaver bears the Stripe fee on the whole charge
+
+      leadsSheet.getRange(i + 1, 17).setValue('ACCEPTED')
+      txSheet.appendRow([ts, d.leadId, agentEmail, 'LSE_FEE',          fee,       row[14], source])
+      txSheet.appendRow([ts, d.leadId, agentEmail, 'LIFESAVER_PAYOUT', payout,    row[14], source])
+      txSheet.appendRow([ts, d.leadId, agentEmail, 'STRIPE_FEE',       stripeFee, row[14], source])
+
+      sendEmail(agentEmail, 'Lead unlocked: ' + String(row[2]).split(' ')[0], agentPurchaseBody(row, stars))
+      var lsEmail = getLSEmailById(ss, String(row[14]))
+      if (lsEmail) sendEmail(lsEmail, 'Your referral for ' + String(row[2]).split(' ')[0] + ' was purchased', lifesaverPaidBody(row, stars, payout))
+      return respond(200, 'Purchase recorded')
+    }
+    return respond(404, 'Lead not found')
+  } finally {
+    lock.releaseLock()
+  }
+}
+
+// ----------------------------------------------
+// LEVEL BONUSES (one-time cash, banked in the ledger for the weekly payout)
+// ----------------------------------------------
+function qualifiedCount(leadsData, lsId, lsHandle) {
+  var n = 0
+  for (var i = 1; i < leadsData.length; i++) {
+    var byId = lsId && String(leadsData[i][14]) === String(lsId)
+    var byHandle = lsHandle && String(leadsData[i][15]) === String(lsHandle)
+    if (!byId && !byHandle) continue
+    if (starsForRow(leadsData[i]) >= 2) n++
+  }
+  return n
+}
+
+function awardLevelBonuses(ss, lsId, lsHandle) {
+  var txSheet = ss.getSheetByName('Transactions')
+  if (!txSheet || !lsId) return
+  var leadsData = ss.getSheetByName('Leads').getDataRange().getValues()
+  var count = qualifiedCount(leadsData, lsId, lsHandle)
+  var txData = txSheet.getDataRange().getValues()
+  var ts = new Date().toISOString()
+  for (var i = 0; i < LEVELS.length; i++) {
+    var lvl = LEVELS[i]
+    if (!lvl.bonus || count < lvl.min) continue
+    var source = 'LEVEL:' + lvl.name
+    var done = false
+    for (var t = 1; t < txData.length; t++) {
+      if (txData[t][3] === 'LEVEL_BONUS' && String(txData[t][5]) === String(lsId) && String(txData[t][6]) === source) { done = true; break }
+    }
+    if (!done) txSheet.appendRow([ts, '', '', 'LEVEL_BONUS', lvl.bonus, lsId, source])
+  }
+}
+
+// Supreme = the LifeSaver with the most qualifying leads submitted in the month, among those with
+// SUPREME_MIN+ lifetime. Pass a Date inside the month to evaluate. Returns { lsId, handle, count } or null.
+function getMonthlySupreme(leadsData, monthDate) {
+  var y = monthDate.getFullYear(), m = monthDate.getMonth()
+  var life = {}, month = {}, handles = {}
+  for (var i = 1; i < leadsData.length; i++) {
+    var id = String(leadsData[i][14] || '')
+    if (!id || starsForRow(leadsData[i]) < 2) continue
+    life[id] = (life[id] || 0) + 1
+    handles[id] = leadsData[i][15]
+    var d = new Date(leadsData[i][1])
+    if (d.getFullYear() === y && d.getMonth() === m) month[id] = (month[id] || 0) + 1
+  }
+  var best = null
+  for (var k in life) {
+    if (life[k] < SUPREME_MIN) continue
+    var c = month[k] || 0
+    if (!best || c > best.count) best = { lsId: k, handle: handles[k], count: c }
+  }
+  return best
+}
+
+// True if this LifeSaver already received the Supreme bonus in any month (one-time per LifeSaver, ever).
+function hasSupremeBonus(txData, lsId) {
+  for (var t = 1; t < txData.length; t++) {
+    if (txData[t][3] === 'LEVEL_BONUS' && String(txData[t][5]) === String(lsId) && String(txData[t][6]).indexOf('SUPREME:') === 0) return true
+  }
+  return false
+}
+
+// Monthly job (installTriggers schedules it for the 1st). Banks the one-time Supreme bonus for the
+// month just ended. The title still rotates monthly, but a LifeSaver is only ever paid the bonus once.
+function awardSupremeMonthly(forDate) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+  var prev = forDate ? new Date(forDate) : new Date()
+  if (!forDate) { prev.setDate(1); prev.setMonth(prev.getMonth() - 1) }
+  var leadsData = ss.getSheetByName('Leads').getDataRange().getValues()
+  var sup = getMonthlySupreme(leadsData, prev)
+  if (!sup || sup.count === 0) return null
+  var txSheet = ss.getSheetByName('Transactions')
+  var txData = txSheet.getDataRange().getValues()
+  if (hasSupremeBonus(txData, sup.lsId)) return null
+  var source = 'SUPREME:' + prev.getFullYear() + '-' + ('0' + (prev.getMonth() + 1)).slice(-2)
+  txSheet.appendRow([new Date().toISOString(), '', '', 'LEVEL_BONUS', SUPREME_BONUS, sup.lsId, source])
+  return sup
+}
+
+// ----------------------------------------------
+// AUTH SUPPORT (called only by the Vercel auth functions, with SERVER_KEY)
+// Passwords are hashed in Vercel (scrypt). Apps Script only stores the hash.
+// ----------------------------------------------
+function adminEmails() {
+  var raw = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || 'reverendqs@gmail.com'
+  return raw.toLowerCase().split(',').map(function (x) { return x.trim() }).filter(Boolean)
+}
+
+// Returns a user object or null. Same account rules as the old validate_login, plus admins.
+function lookupUser(email) {
+  email = String(email || '').toLowerCase().trim()
+  if (!email) return null
+  if (adminEmails().indexOf(email) !== -1) {
+    return { role: 'admin', id: 'adm1', name: 'Quenton Stroud', email: email }
+  }
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+
+  var agSheet = ss.getSheetByName('Agent_Broker_Applications')
+  if (agSheet) {
+    var agData = agSheet.getDataRange().getValues()
+    for (var i = 1; i < agData.length; i++) {
+      if (String(agData[i][3] || '').toLowerCase().trim() === email) {
+        return { role: 'agent', id: 'ag-' + i, name: agData[i][1], agency: agData[i][2], email: agData[i][3], phone: agData[i][4] }
+      }
+    }
+  }
+  var usersSheet = ss.getSheetByName('Users')
+  if (usersSheet) {
+    var u = usersSheet.getDataRange().getValues()
+    for (var j = 1; j < u.length; j++) {
+      if (String(u[j][3] || '').toLowerCase().trim() === email && u[j][2] === 'lifesaver') {
+        return { role: 'lifesaver', id: u[j][0], name: u[j][1], email: u[j][3], handle: u[j][4], tier: u[j][5], agentEmail: u[j][6] }
+      }
+    }
+  }
+  var lsSheet = ss.getSheetByName('LifeSaver_Applications')
+  if (lsSheet) {
+    var l = lsSheet.getDataRange().getValues()
+    for (var k = 1; k < l.length; k++) {
+      if (String(l[k][2] || '').toLowerCase().trim() === email) {
+        return { role: 'lifesaver', id: 'ls-' + k, name: l[k][1], email: l[k][2], phone: l[k][3], handle: '', tier: 'Pending Activation', agentEmail: '' }
+      }
+    }
+  }
+  return null
+}
+
+function credentialsSheet(ss) {
+  var sh = ss.getSheetByName('Credentials')
+  if (!sh) { sh = ss.insertSheet('Credentials'); sh.appendRow(['Email', 'PasswordHash', 'UpdatedAt']) }
+  return sh
+}
+
+function authGetCredential(params) {
+  var email = String(params.email || '').toLowerCase().trim()
+  var sh = credentialsSheet(SpreadsheetApp.openById(SPREADSHEET_ID))
+  var rows = sh.getDataRange().getValues()
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).toLowerCase().trim() === email) return jsonOut({ found: true, hash: String(rows[i][1]) })
+  }
+  return jsonOut({ found: false })
+}
+
+function authSetCredential(d) {
+  var email = String(d.email || '').toLowerCase().trim()
+  if (!email || !d.hash) return respond(400, 'Bad request')
+  if (!lookupUser(email)) return respond(404, 'No account')
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    var sh = credentialsSheet(SpreadsheetApp.openById(SPREADSHEET_ID))
+    var rows = sh.getDataRange().getValues()
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]).toLowerCase().trim() === email) {
+        sh.getRange(i + 1, 2).setValue(String(d.hash)); sh.getRange(i + 1, 3).setValue(new Date().toISOString())
+        return respond(200, 'Password updated')
+      }
+    }
+    sh.appendRow([email, String(d.hash), new Date().toISOString()])
+    return respond(200, 'Password set')
+  } finally { lock.releaseLock() }
+}
+
+// Sliding counter in the script cache. Returns { allowed } and counts this attempt.
+function authThrottle(d) {
+  var cache = CacheService.getScriptCache()
+  var key = 'thr:' + String(d.key || '')
+  var lock = LockService.getScriptLock(); lock.waitLock(10000)
+  try {
+    var n = parseInt(cache.get(key) || '0', 10)
+    if (n >= (Number(d.limit) || 5)) return jsonOut({ allowed: false })
+    cache.put(key, String(n + 1), Math.min(21600, Number(d.windowSec) || 900))
+    return jsonOut({ allowed: true })
+  } finally { lock.releaseLock() }
+}
+
+// Single-use token ids. First call for a jti returns ok:true, later calls ok:false.
+function authConsume(d) {
+  var cache = CacheService.getScriptCache()
+  var key = 'jti:' + String(d.jti || '')
+  if (!d.jti) return jsonOut({ ok: false })
+  var lock = LockService.getScriptLock(); lock.waitLock(10000)
+  try {
+    if (cache.get(key)) return jsonOut({ ok: false })
+    cache.put(key, '1', 21600)
+    return jsonOut({ ok: true })
+  } finally { lock.releaseLock() }
+}
+
+function sendMagicLink(d) {
+  var email = String(d.email || '').toLowerCase().trim()
+  if (!lookupUser(email)) return respond(404, 'No account')
+  var link = String(d.link || '')
+  if (link.indexOf('https://') !== 0) return respond(400, 'Bad link')
+  sendEmail(email, 'Your LifeSavers Elite sign-in link',
+    '<h2 style="color:#fff;">Sign in to LifeSavers Elite</h2>'
+    + '<p>Click the button to sign in. This link works once and expires in 15 minutes.</p>'
+    + '<div style="text-align:center;margin:32px 0;"><a href="' + escHtml(link) + '" style="background:#C01428;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;">Sign In</a></div>'
+    + '<p style="color:#9ca3af;font-size:12px;">If you did not ask for this, you can ignore this email. Nobody can sign in without it.</p>')
+  return respond(200, 'Sent')
+}
+
+// ----------------------------------------------
+// PAYOUT REPORT FOR PAYROLL
+// Owed = LIFESAVER_PAYOUT + LEVEL_BONUS earned up to `through`, minus everything already marked PAYOUT_PAID.
+// ----------------------------------------------
+function buildPayoutReport(ss, through) {
+  var cutoff = through ? new Date(through) : new Date()
+  var txData = ss.getSheetByName('Transactions').getDataRange().getValues()
+  var by = {}
+  function slot(id) { return by[id] || (by[id] = { lsId: id, leads: 0, commissions: 0, bonuses: 0, paid: 0 }) }
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i], type = tx[3], id = String(tx[5] || '')
+    if (!id) continue
+    var amt = parseFloat(tx[4]) || 0
+    if (type === 'PAYOUT_PAID') { slot(id).paid += amt; continue }
+    if (type !== 'LIFESAVER_PAYOUT' && type !== 'LEVEL_BONUS') continue
+    if (new Date(tx[0]) > cutoff) continue
+    if (type === 'LIFESAVER_PAYOUT') { slot(id).leads++; slot(id).commissions += amt }
+    else slot(id).bonuses += amt
+  }
+  var people = {}
+  var users = ss.getSheetByName('Users') ? ss.getSheetByName('Users').getDataRange().getValues() : []
+  for (var u = 1; u < users.length; u++) people[String(users[u][0])] = { name: users[u][1], email: users[u][3], handle: users[u][4] }
+  var rows = [], total = 0
+  for (var k in by) {
+    var r = by[k], p = people[k] || {}
+    r.commissions = round2(r.commissions); r.bonuses = round2(r.bonuses); r.paid = round2(r.paid)
+    r.due = Math.max(0, round2(r.commissions + r.bonuses - r.paid))
+    r.name = p.name || ''; r.email = p.email || ''; r.handle = p.handle || ''
+    if (r.commissions || r.bonuses || r.paid) { rows.push(r); total += r.due }
+  }
+  rows.sort(function (a, b) { return b.due - a.due })
+  return { through: cutoff.toISOString(), rows: rows, totalDue: round2(total) }
+}
+
+function getPayoutReport(params) {
+  var rep = buildPayoutReport(SpreadsheetApp.openById(SPREADSHEET_ID), params.through)
+  rep.status = 200
+  return jsonOut(rep)
+}
+
+// Marks everything currently due (up to `through`) as paid. Pass expectedTotal from the report the admin
+// reviewed: if the numbers moved since, nothing is recorded. Idempotent per batchId.
+function handleMarkPaid(d) {
+  if (!d.batchId || !/^[A-Za-z0-9_-]{6,60}$/.test(String(d.batchId))) return respond(400, 'Bad batch id')
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+    var txSheet = ss.getSheetByName('Transactions')
+    var tx = txSheet.getDataRange().getValues()
+    for (var i = 1; i < tx.length; i++) {
+      if (tx[i][3] === 'PAYOUT_PAID' && String(tx[i][6]).indexOf('BATCH:' + d.batchId + '|') === 0) return respond(200, 'Already marked')
+    }
+    var rep = buildPayoutReport(ss, d.through)
+    var only = d.lsIds && d.lsIds.length ? d.lsIds.map(String) : null
+    var rows = rep.rows.filter(function (r) { return r.due > 0.004 && (!only || only.indexOf(String(r.lsId)) !== -1) })
+    var total = round2(rows.reduce(function (s, r) { return s + r.due }, 0))
+    if (Math.abs(total - (Number(d.expectedTotal) || 0)) > 0.009) {
+      return jsonOut({ status: 409, message: 'Totals changed since you opened the report', totalDue: total })
+    }
+    var ts = new Date().toISOString()
+    rows.forEach(function (r) {
+      txSheet.appendRow([ts, '', '', 'PAYOUT_PAID', r.due, r.lsId, 'BATCH:' + d.batchId + '|through:' + rep.through])
+    })
+    return jsonOut({ status: 200, message: 'Marked paid', count: rows.length, total: total })
+  } finally { lock.releaseLock() }
+}
+
+// ----------------------------------------------
+// FINANCE: gross, corrected gross, LSE fees, net income, by period
+// Definitions (owner decision 2026-11-22):
+//   Gross income     = everything agents paid (AGENT_CHARGE)
+//   Corrected gross  = gross - refunds - Stripe processing fees
+//   LSE net income   = corrected gross - LifeSaver commissions - level bonuses
+//   LSE fees         = the $5 service fees earned (shown on their own line)
+// Weeks run Sunday to Saturday in the script's time zone.
+// ----------------------------------------------
+var TAX_1099_THRESHOLD = 600
+
+function startOfWeek(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - x.getDay()); return x }
+function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x }
+
+function periodBounds(now) {
+  var wk = startOfWeek(now)
+  var mo = new Date(now.getFullYear(), now.getMonth(), 1)
+  return {
+    thisWeek:  { label: 'This week',    start: wk, end: addDays(wk, 7) },
+    lastWeek:  { label: 'Last week',    start: addDays(wk, -7), end: wk },
+    thisMonth: { label: 'This month',   start: mo, end: new Date(now.getFullYear(), now.getMonth() + 1, 1) },
+    lastMonth: { label: 'Last month',   start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: mo },
+    ytd:       { label: 'Year to date', start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear() + 1, 0, 1) }
+  }
+}
+
+function inRange(ts, start, end) { var d = new Date(ts); return d >= start && d < end }
+
+// Pure: totals for one period from the ledger (Transactions) and the Leads sheet.
+function computeFinance(txData, leadsData, start, end) {
+  var t = { gross: 0, refunds: 0, stripeFees: 0, correctedGross: 0, lseFees: 0, commissions: 0, bonuses: 0, lseNet: 0,
+            payoutsPaid: 0, paidLeads: 0, freeUnlocks: 0, leadsSubmitted: 0 }
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i]
+    if (!inRange(tx[0], start, end)) continue
+    var amt = parseFloat(tx[4]) || 0
+    switch (tx[3]) {
+      case 'AGENT_CHARGE':     t.gross += amt; t.paidLeads++; break
+      case 'REFUND':           t.refunds += amt; break
+      case 'STRIPE_FEE':       t.stripeFees += amt; break
+      case 'LSE_FEE':          t.lseFees += amt; break
+      case 'LIFESAVER_PAYOUT': t.commissions += amt; break
+      case 'LEVEL_BONUS':      t.bonuses += amt; break
+      case 'PAYOUT_PAID':      t.payoutsPaid += amt; break
+      case 'FREE_UNLOCK':      t.freeUnlocks++; break
+    }
+  }
+  for (var j = 1; j < (leadsData || []).length; j++) if (leadsData[j][0] && inRange(leadsData[j][1], start, end)) t.leadsSubmitted++
+  ;['gross', 'refunds', 'stripeFees', 'lseFees', 'commissions', 'bonuses', 'payoutsPaid'].forEach(function (k) { t[k] = round2(t[k]) })
+  t.correctedGross = round2(t.gross - t.refunds - t.stripeFees)
+  t.lseNet = round2(t.correctedGross - t.commissions - t.bonuses)
+  return t
+}
+
+function withBounds(p, totals) {
+  totals.label = p.label; totals.start = p.start.toISOString(); totals.end = p.end.toISOString()
+  return totals
+}
+
+function piOf(source) { var m = /\|pi:([^|]+)/.exec(String(source || '')); return m ? m[1] : '' }
+
+// Charges that must be refunded (lead not unlocked) and have not been fully refunded yet.
+function pendingRefunds(txData) {
+  var need = {}, done = {}
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i], pi = piOf(tx[6]), amt = parseFloat(tx[4]) || 0
+    if (tx[3] === 'NEEDS_REFUND') need[pi || ('row' + i)] = { leadId: tx[1], agentEmail: tx[2], amount: round2(amt), reason: String(tx[6]).split('|').pop(), date: new Date(tx[0]).toISOString() }
+    if (tx[3] === 'REFUND' && pi) done[pi] = (done[pi] || 0) + amt
+  }
+  var out = []
+  for (var k in need) if ((done[k] || 0) + 0.004 < need[k].amount) out.push(need[k])
+  return out
+}
+
+// 1099-NEC tracking: what was actually paid to each LifeSaver in a calendar year (cash basis).
+function tax1099(txData, ss, year) {
+  var by = {}
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i]
+    if (tx[3] !== 'PAYOUT_PAID' || new Date(tx[0]).getFullYear() !== year) continue
+    var id = String(tx[5] || ''); if (!id) continue
+    by[id] = (by[id] || 0) + (parseFloat(tx[4]) || 0)
+  }
+  var people = {}, users = ss.getSheetByName('Users') ? ss.getSheetByName('Users').getDataRange().getValues() : []
+  for (var u = 1; u < users.length; u++) people[String(users[u][0])] = { name: users[u][1], email: users[u][3], handle: users[u][4] }
+  var rows = Object.keys(by).map(function (id) {
+    var p = people[id] || {}, paid = round2(by[id])
+    return { lsId: id, name: p.name || '', email: p.email || '', handle: p.handle || '', paid: paid,
+             needs1099: paid >= TAX_1099_THRESHOLD, approaching: paid >= TAX_1099_THRESHOLD - 100 && paid < TAX_1099_THRESHOLD }
+  }).sort(function (a, b) { return b.paid - a.paid })
+  return { year: year, threshold: TAX_1099_THRESHOLD, rows: rows, count: rows.filter(function (r) { return r.needs1099 }).length }
+}
+
+function buildFinance(ss, now, year) {
+  var txData = ss.getSheetByName('Transactions').getDataRange().getValues()
+  var leadsData = ss.getSheetByName('Leads') ? ss.getSheetByName('Leads').getDataRange().getValues() : []
+  var b = periodBounds(now), periods = {}
+  Object.keys(b).forEach(function (k) { periods[k] = withBounds(b[k], computeFinance(txData, leadsData, b[k].start, b[k].end)) })
+  var weekly = []
+  for (var w = 7; w >= 0; w--) {
+    var ws = addDays(b.thisWeek.start, -7 * w)
+    weekly.push(withBounds({ label: 'Week of ' + (ws.getMonth() + 1) + '/' + ws.getDate(), start: ws, end: addDays(ws, 7) }, computeFinance(txData, leadsData, ws, addDays(ws, 7))))
+  }
+  var monthly = []
+  for (var m = 0; m <= now.getMonth(); m++) {
+    var ms = new Date(now.getFullYear(), m, 1), me = new Date(now.getFullYear(), m + 1, 1)
+    monthly.push(withBounds({ label: ms.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), start: ms, end: me }, computeFinance(txData, leadsData, ms, me)))
+  }
+  var payroll = buildPayoutReport(ss)
+  return {
+    generatedAt: now.toISOString(), periods: periods, weekly: weekly, monthly: monthly,
+    refundsPending: pendingRefunds(txData),
+    tax1099: tax1099(txData, ss, year || now.getFullYear()),
+    payroll: { totalDue: payroll.totalDue, people: payroll.rows.filter(function (r) { return r.due > 0.004 }).length }
+  }
+}
+
+function getAdminFinance(params) {
+  var now = new Date()
+  var year = parseInt(params.year, 10)
+  if (!(year >= 2020 && year <= now.getFullYear())) year = now.getFullYear()
+  var out = buildFinance(SpreadsheetApp.openById(SPREADSHEET_ID), now, year)
+  out.status = 200
+  return jsonOut(out)
+}
+
+// Personal totals for a LifeSaver (earned = commissions + level bonuses).
+function lifesaverTotals(ss, txData, lsId, now) {
+  var b = periodBounds(now), res = { week: 0, month: 0, ytd: 0, paidThisYear: 0, owedNow: 0, weekly: [] }
+  if (!lsId) return res
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i]
+    if (String(tx[5]) !== String(lsId)) continue
+    var amt = parseFloat(tx[4]) || 0
+    if (tx[3] === 'LIFESAVER_PAYOUT' || tx[3] === 'LEVEL_BONUS') {
+      if (inRange(tx[0], b.thisWeek.start, b.thisWeek.end)) res.week += amt
+      if (inRange(tx[0], b.thisMonth.start, b.thisMonth.end)) res.month += amt
+      if (inRange(tx[0], b.ytd.start, b.ytd.end)) res.ytd += amt
+    }
+    if (tx[3] === 'PAYOUT_PAID' && inRange(tx[0], b.ytd.start, b.ytd.end)) res.paidThisYear += amt
+  }
+  for (var w = 7; w >= 0; w--) {
+    var ws = addDays(b.thisWeek.start, -7 * w), we = addDays(ws, 7), leads = 0, comm = 0, bon = 0
+    for (var j = 1; j < txData.length; j++) {
+      var t = txData[j]
+      if (String(t[5]) !== String(lsId) || !inRange(t[0], ws, we)) continue
+      if (t[3] === 'LIFESAVER_PAYOUT') { leads++; comm += parseFloat(t[4]) || 0 }
+      if (t[3] === 'LEVEL_BONUS') bon += parseFloat(t[4]) || 0
+    }
+    res.weekly.push({ week: 'Week of ' + (ws.getMonth() + 1) + '/' + ws.getDate(), leads: leads, commissions: round2(comm), bonuses: round2(bon), total: round2(comm + bon) })
+  }
+  var mine = buildPayoutReport(ss).rows.filter(function (r) { return String(r.lsId) === String(lsId) })[0]
+  res.owedNow = mine ? mine.due : 0
+  ;['week', 'month', 'ytd', 'paidThisYear'].forEach(function (k) { res[k] = round2(res[k]) })
+  return res
+}
+
+// Personal totals for an agent (what they paid, minus refunds), by period.
+function agentTotals(txData, agentEmail, now) {
+  var b = periodBounds(now), out = {}
+  ;['thisWeek', 'thisMonth', 'ytd'].forEach(function (k) { out[k] = { label: b[k].label, spent: 0, refunded: 0, net: 0, leads: 0, freeLeads: 0 } })
+  for (var i = 1; i < txData.length; i++) {
+    var tx = txData[i]
+    if (String(tx[2] || '').toLowerCase().trim() !== agentEmail) continue
+    var amt = parseFloat(tx[4]) || 0
+    ;['thisWeek', 'thisMonth', 'ytd'].forEach(function (k) {
+      if (!inRange(tx[0], b[k].start, b[k].end)) return
+      if (tx[3] === 'AGENT_CHARGE') { out[k].spent += amt; out[k].leads++ }
+      if (tx[3] === 'REFUND') out[k].refunded += amt
+      if (tx[3] === 'FREE_UNLOCK') out[k].freeLeads++
+    })
+  }
+  Object.keys(out).forEach(function (k) { out[k].spent = round2(out[k].spent); out[k].refunded = round2(out[k].refunded); out[k].net = round2(out[k].spent - out[k].refunded) })
+  return out
+}
+
+// ----------------------------------------------
+// REFUNDS (called by the Vercel Stripe webhook on charge.refunded, shared secret)
+// amountRefunded is Stripe's running total for the charge, so repeated or partial refunds record only the difference.
+// ----------------------------------------------
+function handleRefundRecorded(d) {
+  if (!d.chargeId) return respond(400, 'Missing charge')
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID)
+    var txSheet = ss.getSheetByName('Transactions')
+    var tx = txSheet.getDataRange().getValues()
+    var prefix = 'REFUND:' + d.chargeId + '|', already = 0, session = '', hadPayout = false
+    for (var i = 1; i < tx.length; i++) {
+      if (tx[i][3] === 'REFUND' && String(tx[i][6]).indexOf(prefix) === 0) already += parseFloat(tx[i][4]) || 0
+      if (tx[i][3] === 'AGENT_CHARGE' && d.paymentIntent && piOf(tx[i][6]) === d.paymentIntent) session = String(tx[i][6]).split('|')[0]
+    }
+    var delta = round2((Number(d.amountRefunded) || 0) / 100 - already)
+    if (delta <= 0.004) return respond(200, 'Already recorded')
+    if (session) for (var k = 1; k < tx.length; k++) if (tx[k][3] === 'LIFESAVER_PAYOUT' && String(tx[k][6]) === session) hadPayout = true
+    var lsId = ''
+    var leads = ss.getSheetByName('Leads').getDataRange().getValues()
+    for (var j = 1; j < leads.length; j++) if (leads[j][0] === d.leadId) { lsId = leads[j][14]; break }
+    var agentEmail = String(d.agentEmail || '').toLowerCase().trim()
+    txSheet.appendRow([new Date().toISOString(), d.leadId || '', agentEmail, 'REFUND', delta, lsId, prefix + 'pi:' + (d.paymentIntent || '')])
+    if (hadPayout) {
+      sendEmail(ADMIN_EMAIL, 'Refund on a purchased lead: ' + (d.leadId || d.chargeId),
+        '<p>A refund of $' + delta.toFixed(2) + ' was issued for lead ' + escHtml(d.leadId) + ', which had already been unlocked and credited to the LifeSaver.</p>'
+        + '<p>The LifeSaver commission was <strong>not</strong> reversed automatically. Decide whether to adjust it before the next payout.</p>')
+    }
+    return respond(200, 'Refund recorded')
+  } finally { lock.releaseLock() }
+}
+
+// ----------------------------------------------
+// WEEKLY EMAIL SUMMARY (Sunday morning, via installTriggers)
+// ----------------------------------------------
+function money2(n) { return '$' + (Number(n) || 0).toFixed(2) }
+
+function weeklySummaryHtml(f) {
+  var rows = [['Gross income', 'gross'], ['Refunds', 'refunds'], ['Stripe fees', 'stripeFees'], ['Corrected gross', 'correctedGross'],
+              ['LSE service fees', 'lseFees'], ['LifeSaver commissions', 'commissions'], ['Level bonuses', 'bonuses'], ['LSE net income', 'lseNet'],
+              ['Paid leads', 'paidLeads'], ['Referrals submitted', 'leadsSubmitted']]
+  var cols = [['Last week', f.periods.lastWeek], ['This month', f.periods.thisMonth], ['Year to date', f.periods.ytd]]
+  var cell = 'padding:6px 10px;border-bottom:1px solid #333;text-align:right;'
+  var html = '<h2 style="color:#fff;">Weekly summary</h2><table style="border-collapse:collapse;width:100%;font-size:14px;"><tr><th style="' + cell + 'text-align:left;"></th>'
+  cols.forEach(function (c) { html += '<th style="' + cell + '">' + c[0] + '</th>' })
+  html += '</tr>'
+  rows.forEach(function (r) {
+    var isCount = r[1] === 'paidLeads' || r[1] === 'leadsSubmitted'
+    var bold = r[1] === 'correctedGross' || r[1] === 'lseNet'
+    html += '<tr><td style="' + cell + 'text-align:left;' + (bold ? 'font-weight:bold;' : '') + '">' + r[0] + '</td>'
+    cols.forEach(function (c) { var v = c[1][r[1]]; html += '<td style="' + cell + (bold ? 'font-weight:bold;' : '') + '">' + (isCount ? v : money2(v)) + '</td>' })
+    html += '</tr>'
+  })
+  html += '</table>'
+  html += '<p><strong>Payroll due now:</strong> ' + money2(f.payroll.totalDue) + ' to ' + f.payroll.people + ' LifeSaver(s). Pay them, then mark paid in Admin &gt; Revenue.</p>'
+  if (f.refundsPending.length) html += '<p style="color:#f59e0b;"><strong>Refunds still to issue:</strong> ' + f.refundsPending.length + ' (' + money2(f.refundsPending.reduce(function (s, r) { return s + r.amount }, 0)) + '). Refund them in Stripe.</p>'
+  if (f.tax1099.count) html += '<p><strong>1099-NEC:</strong> ' + f.tax1099.count + ' LifeSaver(s) have been paid ' + money2(TAX_1099_THRESHOLD) + ' or more in ' + f.tax1099.year + '.</p>'
+  return html
+}
+
+function sendWeeklySummary() {
+  var f = buildFinance(SpreadsheetApp.openById(SPREADSHEET_ID), new Date())
+  sendEmail(ADMIN_EMAIL, 'LifeSavers Elite weekly summary: corrected gross ' + money2(f.periods.lastWeek.correctedGross), weeklySummaryHtml(f))
+}
+
+// ----------------------------------------------
+// SHEET SETUP: creates any missing tab and fills in blank header cells. Never renames or deletes anything.
+// ----------------------------------------------
+var SHEET_HEADERS = {
+  LifeSaver_Applications: ['Timestamp', 'Name', 'Email', 'Phone', 'MainSocialMedia', 'Positions', 'Employment', 'Insurance', 'Referral', 'Excites', 'Resume'],
+  Agent_Broker_Applications: ['Timestamp', 'Name', 'Agency', 'Email', 'Phone', 'NPN', 'States', 'Years', 'Lines', 'PayoutStructure', 'HearAbout', 'PaymentMethod'],
+  Leads: ['LeadID', 'Timestamp', 'LeadName', 'Phone', 'Email', 'City', 'State', 'Age', 'Beneficiaries', 'HealthRating', 'Smoking', 'PolicyType', 'Timeline', 'Notes',
+          'LifeSaverID', 'LifeSaverHandle', 'Status', 'StarRating', 'Expiry', 'LSEFee', 'PoolSource', 'BeneficiaryDetails', 'HealthConditions'],
+  Transactions: ['Timestamp', 'LeadID', 'AgentEmail', 'Type', 'Amount', 'LifeSaverID', 'Source'],
+  Users: ['UserID', 'Name', 'Role', 'Email', 'Handle', 'Tier', 'AssignedAgentEmail'],
+  Credentials: ['Email', 'PasswordHash', 'UpdatedAt']
+}
+
+function setupSheets() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID), report = []
+  Object.keys(SHEET_HEADERS).forEach(function (name) {
+    var want = SHEET_HEADERS[name], sh = ss.getSheetByName(name)
+    if (!sh) { sh = ss.insertSheet(name); sh.appendRow(want); report.push('Created ' + name); return }
+    var values = sh.getDataRange().getValues()
+    var header = values.length ? values[0] : []
+    var empty = !header.length || header.every(function (c) { return String(c).trim() === '' })
+    if (empty && values.length <= 1) { if (values.length) for (var c0 = 0; c0 < want.length; c0++) sh.getRange(1, c0 + 1).setValue(want[c0]); else sh.appendRow(want); report.push('Added headers to ' + name); return }
+    var filled = 0
+    for (var c = 0; c < want.length; c++) {
+      if (String(header[c] === undefined ? '' : header[c]).trim() === '') { sh.getRange(1, c + 1).setValue(want[c]); filled++ }
+    }
+    if (filled) report.push('Filled ' + filled + ' blank header(s) in ' + name)
+  })
+  return report
+}
+
+// Run ONCE from the Apps Script editor (select installTriggers > Run). It sets up the Sheet tabs and schedules:
+//   awardSupremeMonthly (1st of the month), autoDeclineExpiredLeads (hourly), sendWeeklySummary (Sunday 7am).
+function installTriggers() {
+  var report = setupSheets()
+  var existing = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() })
+  if (existing.indexOf('awardSupremeMonthly') === -1) {
+    ScriptApp.newTrigger('awardSupremeMonthly').timeBased().onMonthDay(1).atHour(6).create(); report.push('Scheduled awardSupremeMonthly')
+  }
+  if (existing.indexOf('autoDeclineExpiredLeads') === -1) {
+    ScriptApp.newTrigger('autoDeclineExpiredLeads').timeBased().everyHours(1).create(); report.push('Scheduled autoDeclineExpiredLeads')
+  }
+  if (existing.indexOf('sendWeeklySummary') === -1) {
+    ScriptApp.newTrigger('sendWeeklySummary').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(7).create(); report.push('Scheduled sendWeeklySummary')
+  }
+  return report
+}
+function installMonthlyTriggers() { return installTriggers() }   // old name, kept so existing instructions still work
+
 // ----------------------------------------------
 // LEAD DECLINE
 // ----------------------------------------------
@@ -936,10 +1919,14 @@ function handleLeadDecline(d) {
   var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
   var leadsSheet = ss.getSheetByName('Leads')
   var data       = leadsSheet.getDataRange().getValues()
+  var agentEmail = String(d.agentEmail || '').toLowerCase().trim()
 
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === d.leadId) {
       var row = data[i]
+      if (row[16] !== 'PENDING') return respond(409, 'Lead is not pending')
+      var assigned = String(getAgentEmailForLifeSaver(row[14]) || '').toLowerCase().trim()
+      if (!agentEmail || assigned !== agentEmail) return respond(403, 'Not your lead')
       leadsSheet.getRange(i + 1, 17).setValue('POOL')
       leadsSheet.getRange(i + 1, 20).setValue('Declined by assigned Agent')
 
@@ -953,27 +1940,6 @@ function handleLeadDecline(d) {
     }
   }
   return respond(200, 'Lead declined - moved to pool')
-}
-
-// ----------------------------------------------
-// CLAIM FROM POOL
-// ----------------------------------------------
-function handleClaimFromPool(d) {
-  var ss         = SpreadsheetApp.openById(SPREADSHEET_ID)
-  var leadsSheet = ss.getSheetByName('Leads')
-  var txSheet    = ss.getSheetByName('Transactions')
-  var data       = leadsSheet.getDataRange().getValues()
-  var ts         = new Date().toISOString()
-
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0] === d.leadId) {
-      leadsSheet.getRange(i + 1, 17).setValue('ACCEPTED')
-      txSheet.appendRow([ts, d.leadId, d.agentId, 'LSE_FEE',          PLATFORM_FEE,      data[i][14], 'POOL_CLAIM'])
-      txSheet.appendRow([ts, d.leadId, d.agentId, 'LIFESAVER_PAYOUT', d.lifesaverPayout, data[i][14], 'POOL_CLAIM'])
-      break
-    }
-  }
-  return respond(200, 'Lead claimed from pool')
 }
 
 // ----------------------------------------------
@@ -1087,14 +2053,6 @@ function agentNewLeadBody(d, leadId, expiry) {
     + '<div style="text-align:center;margin:32px 0;">'
     + '<a href="https://lifesaverselite.com/dashboard/agent" style="background:#C01428;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;">Review Lead</a>'
     + '</div>'
-}
-
-function lifesaverAcceptBody(row, d) {
-  return '<h2 style="color:#4ade80;">Your referral was accepted.</h2>'
-    + '<p>Your referral for <strong>' + row[2] + '</strong> was accepted.</p>'
-    + '<p><strong>Star Rating:</strong> ' + d.stars + ' / 5</p>'
-    + '<p><strong>You Earned:</strong> $' + (d.lifesaverPayout || 0).toFixed(2) + '</p>'
-    + '<p><strong>Payout Date:</strong> Next Sunday</p>'
 }
 
 function lifesaverDeclineBody(row) {

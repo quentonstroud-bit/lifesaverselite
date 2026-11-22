@@ -1,5 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
+import { SITE_URL } from '../lib/site'
 
 export default function Footer() {
   return (
@@ -18,8 +19,8 @@ export default function Footer() {
 
         <div className="flex items-center gap-6">
           <Link to="/agents/enroll" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Agents & Brokers</Link>
-          <Link to="/privacy" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Privacy Policy</Link>
-          <Link to="/terms" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Terms</Link>
+          <a href={`${SITE_URL}/privacy`} className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Privacy Policy</a>
+          <a href={`${SITE_URL}/terms`} className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Terms</a>
           <a href="mailto:qcandoit@gmail.com" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">Contact</a>
         </div>
       </div>
