@@ -3,10 +3,9 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
 // Public pages
-import Landing from './pages/Landing'
 import Apply from './pages/Apply'
 import AgentEnroll from './pages/AgentEnroll'
-import Login from './pages/Login'
+import Login, { homeFor } from './pages/Login'
 import VerifyLink from './pages/VerifyLink'
 
 // Dashboards
@@ -14,6 +13,13 @@ import LifeSaverDashboard from './pages/dashboard/LifeSaverDashboard'
 import AgentDashboard from './pages/dashboard/AgentDashboard'
 import AdminDashboard from './pages/dashboard/AdminDashboard'
 import Training from './pages/dashboard/Training'
+
+// The website (lifesaverselite.com) is the public landing page; the app opens straight to your work.
+function Home() {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen bg-bg flex items-center justify-center text-gray-500 text-sm">Loading...</div>
+  return <Navigate to={user ? homeFor(user.role) : '/login'} replace />
+}
 
 function ProtectedRoute({ role, children }) {
   const { user, loading } = useAuth()
@@ -26,7 +32,7 @@ function ProtectedRoute({ role, children }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />
+      <Route path="/" element={<Home />} />
       <Route path="/apply" element={<Apply />} />
       <Route path="/agents/enroll" element={<AgentEnroll />} />
       <Route path="/login" element={<Login />} />

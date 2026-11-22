@@ -50,6 +50,7 @@ src/pages/dashboard/             LifeSaverDashboard, AgentDashboard, AdminDashbo
 public/                          favicon, og-image (PNG is what Facebook uses)
 vercel.json                      SPA rewrite -> /index.html
 README.md                        step-by-step setup guide (partly stale, see Section 10)
+website/                         the public marketing website (lifesaverselite.com, Cloudflare), static HTML; Login/Apply buttons point at the app
 docs/HANDOFF.md                  this file
 ```
 
@@ -57,7 +58,7 @@ docs/HANDOFF.md                  this file
 
 | Path | Access | Page |
 |---|---|---|
-| `/` | public | Landing |
+| `/` | public | Redirect: your dashboard if signed in, otherwise `/login`. The public landing page is the website (lifesaverselite.com), not the app. |
 | `/apply` | public | LifeSaver application |
 | `/agents/enroll` | public | Agent/Broker enrollment (multi-page) |
 | `/login` | public | Login |
@@ -273,6 +274,10 @@ Why contact details are emailed rather than shown in-app: login is email-only (S
 Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` sheet for three rows.
 
 ### Domain plan (decided)
+
+- `lifesaverselite.com` (+ `www`) = the website in `website/`, hosted on Cloudflare.
+- `app.lifesaverselite.com` = this app on Vercel. The website's Login, Apply and agent Enroll buttons link here.
+
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
 
 **Lead ids** are `LD-` + milliseconds + 3 random digits, re-rolled if already used and saved under a lock (previously two referrals in the same millisecond could share an id, which would have let a purchase attach to the wrong lead). Checkout still validates `/^LD-\d+$/`.
@@ -328,6 +333,6 @@ Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cut
 ## 12. Conventions for Future Work
 
 - Update **this file** in the same commit as any change to routes, sheet columns, backend actions, env vars, or auth.
-- Branding: dark navy + brand red `#C01428`, white text on red.
+- Branding matches the website: warm black `#0b0a0c` / `#121014`, oxblood red gradient (`#b3163a` > `#8b0f24` > `#5a0618`) for solid red surfaces, accent red `#c41e3a` for text, gold `#c9a45c`, warm greys, **Playfair Display** for h1/h2 and Inter for body. Tokens live in `tailwind.config.js` and `src/index.css` (change them there, not per page).
 - Keep `Code.gs` ASCII-only; keep a hand-copied deploy step in mind (git is not the deploy).
 - Commit style: `feat:`, `fix:` prefixes.

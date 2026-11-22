@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Mail, KeyRound, CheckCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { SITE_URL } from '../lib/site'
 
 const INPUT = 'bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary w-full'
 
@@ -103,6 +104,9 @@ export default function Login() {
             <p className="text-center text-gray-500 text-sm mt-6">
               Not a member yet?{' '}
               <a href="/apply" className="text-primary hover:underline">Apply to join</a>
+            </p>
+            <p className="text-center text-gray-600 text-xs mt-3">
+              <a href={SITE_URL} className="hover:text-gray-400">Back to lifesaverselite.com</a>
             </p>
           </>
         )}
