@@ -2,7 +2,10 @@ import React, { useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { CheckCircle, Lock } from 'lucide-react'
 import StarRating from '../../../components/StarRating'
-import { scoreLead, HEALTH_CONDITIONS, NONE_OF_THESE, RELATIONSHIPS, MAX_BENEFICIARY_ROWS, POLICY_TYPES, TIMELINES, US_STATES } from '../../../lib/leadScore'
+import {
+  scoreLead, HEALTH_CONDITIONS, NONE_OF_THESE, RELATIONSHIPS, MAX_BENEFICIARY_ROWS, POLICY_TYPES, TIMELINES, US_STATES,
+  READY_OPTIONS, CONSENT_OPTIONS, EXISTING_OPTIONS, AMOUNT_OPTIONS, DEPENDENTS_OPTIONS, BEST_TIME_OPTIONS,
+} from '../../../lib/leadScore'
 import { apiPost } from '../../../lib/api'
 
 
@@ -11,7 +14,9 @@ const INITIAL = {
   firstName: '', lastName: '', phone: '', email: '', city: '', state: '',
   age: '', beneficiaries: '', beneficiaryDetails: [],
   healthRating: 5, healthConditions: [], smoking: 'Non-Smoker',
-  policyInterest: '', timeline: '', notes: '',
+  policyInterest: '', timeline: '',
+  readyForCall: '', agreedToContact: '', existingCoverage: '', coverageAmount: '', dependents: '', bestTime: '',
+  notes: '',
 }
 
 const NOTES_TARGET = 150
@@ -33,7 +38,7 @@ export default function LSSubmit() {
         </div>
         <h2 className="text-xl font-bold mb-3">Complete Training to Unlock</h2>
         <p className="text-gray-400 text-sm mb-8 leading-relaxed">
-          You must complete all 5 training modules before submitting referrals. This protects you, your leads, and your Agent/Broker.
+          You must complete all 5 training modules before submitting referrals. This protects you, your referrals, and your Agent/Broker.
         </p>
         <a href="/dashboard/lifesaver/training" className="bg-primary hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors">
           Start Training
@@ -100,11 +105,11 @@ export default function LSSubmit() {
         <p className="text-gray-400 text-sm mt-1">All fields marked * are required.</p>
       </div>
 
-      {/* Live lead-quality meter */}
+      {/* Live referral-quality meter */}
       <QualityMeter form={form} />
 
-      {/* Lead contact */}
-      <Section title="Lead Contact Info">
+      {/* Referral contact */}
+      <Section title="Referral Contact Info">
         <div className="grid grid-cols-2 gap-3">
           <Field label="First Name" required>
             <input required type="text" autoComplete="off" placeholder="First name" maxLength={40} value={form.firstName}
@@ -137,8 +142,8 @@ export default function LSSubmit() {
         </div>
       </Section>
 
-      {/* Lead profile */}
-      <Section title="Lead Profile">
+      {/* Referral profile */}
+      <Section title="Referral Profile">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Age" required>
             <input required type="number" min={18} max={90} placeholder="Age" value={form.age}
@@ -152,7 +157,7 @@ export default function LSSubmit() {
 
         {rowCount > 0 && (
           <div className="flex flex-col gap-3">
-            <p className="text-xs text-gray-500">Name each beneficiary and how they are related to the lead.{parseInt(form.beneficiaries, 10) > MAX_BENEFICIARY_ROWS && ` List up to ${MAX_BENEFICIARY_ROWS}.`}</p>
+            <p className="text-xs text-gray-500">Name each beneficiary and how they are related to the referral.{parseInt(form.beneficiaries, 10) > MAX_BENEFICIARY_ROWS && ` List up to ${MAX_BENEFICIARY_ROWS}.`}</p>
             {Array.from({ length: rowCount }, (_, i) => {
               const row = form.beneficiaryDetails[i] || { name: '', relationship: '' }
               return (
@@ -226,9 +231,30 @@ export default function LSSubmit() {
         </Field>
       </Section>
 
+      {/* About the conversation */}
+      <Section title="About the Conversation">
+        <p className="text-xs text-gray-500 -mt-1">What the referral told you. These answers matter most to the agent.</p>
+        {[
+          ['readyForCall', 'Is the referral ready to take a call?', READY_OPTIONS],
+          ['agreedToContact', 'Did the referral agree to hear from an agent?', CONSENT_OPTIONS],
+          ['existingCoverage', 'Does the referral have existing coverage?', EXISTING_OPTIONS],
+          ['coverageAmount', 'Coverage amount the referral has in mind', AMOUNT_OPTIONS],
+          ['dependents', "People who depend on the referral's income", DEPENDENTS_OPTIONS],
+          ['bestTime', 'Best time to reach the referral', BEST_TIME_OPTIONS],
+        ].map(([key, label, options]) => (
+          <Field key={key} label={label}>
+            <select value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} className={SELECT}>
+              <option value="">Select</option>
+              {options.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </Field>
+        ))}
+        <p className="text-xs text-gray-500">Agents should only call people who agreed to hear from them. Best time to reach is not scored; it helps the agent reach them on the first try.</p>
+      </Section>
+
       {/* Notes */}
       <Section title="Notes">
-        <textarea rows={4} placeholder="Notes help your rating. Share what you know about this lead's situation, urgency, or any context that might help the agent." value={form.notes}
+        <textarea rows={4} placeholder="Notes help your rating. Share what you know about the referral's situation, urgency, or any context that might help the agent." value={form.notes}
           onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
           className="w-full bg-bg border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary resize-none" />
         <p className={`text-xs ${form.notes.trim().length >= NOTES_TARGET ? 'text-success' : 'text-gray-500'}`}>
@@ -253,8 +279,8 @@ function QualityMeter({ form }) {
     <div className="sticky top-2 z-10 bg-surface border border-gray-700 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Lead quality</p>
-          <p className="text-sm font-semibold">{stars >= 4 ? 'Strong lead' : stars === 3 ? 'Getting there' : 'Needs more detail'}</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Referral quality</p>
+          <p className="text-sm font-semibold">{stars >= 4 ? 'Strong referral' : stars === 3 ? 'Getting there' : 'Needs more detail'}</p>
         </div>
         <StarRating rating={stars} size={20} />
       </div>

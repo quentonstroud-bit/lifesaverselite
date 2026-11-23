@@ -123,10 +123,14 @@ export default function AgentPool() {
                     ))}
                   </div>
 
-                  {(lead.conditions?.length > 0 || lead.beneficiaryRelationships?.length > 0) && (
+                  {(lead.conditions?.length > 0 || lead.beneficiaryRelationships?.length > 0 || lead.readyForCall || lead.agreedToContact || lead.existingCoverage || lead.coverageAmount || lead.dependents || lead.bestTime) && (
                             <div className="bg-bg rounded-lg px-3 py-2 text-xs mb-4 flex flex-col gap-1">
                       {lead.beneficiaryRelationships?.length > 0 && <p><span className="text-gray-500">Beneficiaries:</span> {lead.beneficiaryRelationships.join(', ')}</p>}
                       {lead.conditions?.length > 0 && <p><span className="text-gray-500">Health conditions:</span> {lead.conditions.join(', ')}</p>}
+                      {lead.readyForCall && <p><span className="text-gray-500">Ready for a call:</span> {lead.readyForCall}</p>}
+                      {lead.agreedToContact && <p><span className="text-gray-500">Agreed to hear from an agent:</span> {lead.agreedToContact}</p>}
+                      {(lead.existingCoverage || lead.coverageAmount) && <p><span className="text-gray-500">Coverage:</span> {[lead.existingCoverage && `existing: ${lead.existingCoverage}`, lead.coverageAmount && `wants: ${lead.coverageAmount}`].filter(Boolean).join('; ')}</p>}
+                      {(lead.dependents || lead.bestTime) && <p><span className="text-gray-500">Dependents / best time:</span> {[lead.dependents, lead.bestTime].filter(Boolean).join(' / ')}</p>}
                     </div>
                   )}
 

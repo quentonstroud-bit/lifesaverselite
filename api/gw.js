@@ -24,7 +24,8 @@ const GETS = {
   admin_finance:      { role: 'admin',      build: (u, p) => (/^\d{4}$/.test(String(p.year || '')) ? { year: String(p.year) } : {}) },
 }
 
-const REFERRAL_FIELDS = ['firstName', 'lastName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes']
+const REFERRAL_FIELDS = ['firstName', 'lastName', 'phone', 'email', 'city', 'state', 'age', 'beneficiaries', 'beneficiaryDetails', 'healthRating', 'healthConditions', 'smoking', 'policyInterest', 'timeline', 'notes',
+  'readyForCall', 'agreedToContact', 'existingCoverage', 'coverageAmount', 'dependents', 'bestTime']
 
 // formType -> { role | null (public), build(user, body) -> fields sent to Apps Script }
 const POSTS = {
