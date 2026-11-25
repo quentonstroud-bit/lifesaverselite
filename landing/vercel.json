@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    { "source": "/login", "destination": "https://app.lifesaverselite.com/login", "permanent": false },
+    { "source": "/apply", "destination": "https://app.lifesaverselite.com/apply", "permanent": false },
+    { "source": "/agents/enroll", "destination": "https://app.lifesaverselite.com/agents/enroll", "permanent": false },
+    { "source": "/auth/:path*", "destination": "https://app.lifesaverselite.com/auth/:path*", "permanent": false },
+    { "source": "/dashboard/:path*", "destination": "https://app.lifesaverselite.com/dashboard/:path*", "permanent": false }
+  ]
+}
