@@ -997,7 +997,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){links.classList.rem
   // >>> PASTE YOUR APPS SCRIPT WEB APP URL BETWEEN THE QUOTES (it ends in /exec). <<<
   // Find it in Google Sheets: Extensions > Apps Script > Deploy > Manage deployments > Web app URL.
   // The script's 'application' handler validates the form, saves the row and resume, and sends both emails.
-  const FORM_ENDPOINT='';
+  const FORM_ENDPOINT='https://script.google.com/macros/s/AKfycbzT_d2FQGy6PJrbqzE9hcoj09VAg_J0bgIdh6ml4oSqfqSpijvYMTNbyE84VxSC09-e/exec';
   const f=document.getElementById('applyForm'); if(!f) return;
   const pos=[...f.querySelectorAll('input[name="positions"]')];
   const err=document.getElementById('posErr'), st=document.getElementById('formStatus');
