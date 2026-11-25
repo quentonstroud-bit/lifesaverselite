@@ -50,7 +50,7 @@ src/pages/dashboard/             LifeSaverDashboard, AgentDashboard, AdminDashbo
 public/                          favicon, og-image (PNG is what Facebook uses)
 vercel.json                      SPA rewrite -> /index.html
 README.md                        step-by-step setup guide (partly stale, see Section 10)
-landing/                         THE public landing page for lifesaverselite.com (new design, 2026-11-25): static, no build; deploy to Cloudflare Pages
+landing/                         THE public landing page for lifesaverselite.com (new design, 2026-11-25): static, no build; its own Vercel project
 website/                         the previous marketing site (kept for reference; landing/ replaces it)
 docs/HANDOFF.md                  this file
 ```
@@ -282,7 +282,7 @@ Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` 
 
 ### Domain plan (decided)
 
-- `lifesaverselite.com` (+ `www`) = the landing page in `landing/`, hosted on Cloudflare Pages.
+- `lifesaverselite.com` (+ `www`) = the landing page in `landing/`, a second Vercel project (`lifesaverselite-landing`) built from the same repo.
 - `app.lifesaverselite.com` = this app on Vercel. The website's Login, Apply and agent Enroll buttons link here.
 
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
@@ -332,7 +332,7 @@ Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cut
 - **Menu:** Login goes to `https://app.lifesaverselite.com/login`. Agents & Brokers scrolls to the `#agents` section, which links to agent enrollment and agent login in the app. Footer links go to the static pages.
 - **Application form:** posts straight to the Apps Script web app URL set in `FORM_ENDPOINT` near the bottom of `landing/index.html` (text/plain, so no CORS preflight). Fields: name, email, phone, facebook (main social media), positions, employment, insurance, referral (comfort level), excites, resumeAttached, website (spam trap), plus the resume file as base64.
 - **Backend:** `application` is the **only** form type Apps Script accepts without `SERVER_KEY` (`handlePublicApplication`): the hidden `website` field is a spam trap (silently ignored), name/email/phone are validated, lengths capped, max 3 applications per email per 6 hours and 60 per hour overall, text is HTML-escaped in emails, and resumes (PDF/Word, max 5 MB) are saved to a private Google Drive folder "LifeSavers Elite - Resumes" with the link in the sheet's Resume column. Run `installTriggers` once after updating `Code.gs` so the script gets Drive access.
-- **Cloudflare Pages settings:** Framework preset **None**, Build command **(leave empty; if the form insists, enter `exit 0`)**, Build output directory **`landing`**, Root directory **(leave empty)**, Production branch **`main`**. Then add custom domains `lifesaverselite.com` and `www.lifesaverselite.com` to the Pages project (and remove them from the old Workers site if they were attached there).
+- **Hosting (decided 2026-11-25: everything on Vercel):** a second Vercel project, `lifesaverselite-landing`, imported from this same GitHub repo with **Root Directory `landing`**, **Framework Preset Other**, **no build command**, **Output Directory `.`**, production branch `main`. Domains: `lifesaverselite.com` and `www.lifesaverselite.com` on the landing project; `app.lifesaverselite.com` on the app project. A merge to `main` updates both. (Cloudflare Pages would also work with preset None, no build, output `landing`, but is not used.)
 
 ## 10. Known Doc Drift (README.md)
 
