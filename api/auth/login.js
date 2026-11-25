@@ -1,6 +1,6 @@
 // POST { email, password } -> session cookie. Generic error for every failure; throttled per email and per IP.
 import { setSessionCookie, sameOrigin, clientIp } from '../_lib/session.js'
-import { gasGet, gasPost, lookupUser } from '../_lib/gas.js'
+import { gasGet, lookupUser, throttle, BackendError, backendErrorResponse } from '../_lib/gas.js'
 import { verifyPassword } from '../_lib/passwords.js'
 
 export default async function handler(req, res) {
@@ -13,10 +13,10 @@ export default async function handler(req, res) {
 
   try {
     const [byEmail, byIp] = await Promise.all([
-      gasPost('auth_throttle', { key: `pw:${email}`, limit: 8, windowSec: 900 }),
-      gasPost('auth_throttle', { key: `pwip:${clientIp(req)}`, limit: 30, windowSec: 900 }),
+      throttle(`pw:${email}`, 8, 900),
+      throttle(`pwip:${clientIp(req)}`, 30, 900),
     ])
-    if (!byEmail.allowed || !byIp.allowed) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes, or use an email link.' })
+    if (!byEmail || !byIp) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes, or use an email link.' })
 
     const cred = await gasGet('auth_credential', { email })
     const ok = await verifyPassword(password, cred.found ? cred.hash : null)
@@ -24,7 +24,9 @@ export default async function handler(req, res) {
     if (!user) return fail()
     setSessionCookie(req, res, user)
     return res.json({ user })
-  } catch {
+  } catch (e) {
+    if (e instanceof BackendError) return backendErrorResponse(res, e)
+    console.error('[login]', e.message)
     return res.status(502).json({ error: 'Could not sign you in. Try again.' })
   }
 }

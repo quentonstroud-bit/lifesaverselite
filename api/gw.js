@@ -3,7 +3,7 @@
 // Every call needs a valid session (except the two public forms), is role-checked, and has the caller's
 // identity injected from the session, never trusted from the request body.
 import { getSession, sameOrigin, clientIp } from './_lib/session.js'
-import { gasGet, gasPost, lookupUser } from './_lib/gas.js'
+import { gasGet, gasPost, lookupUser, throttle, BackendError, backendErrorResponse } from './_lib/gas.js'
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]))
 const MAX_BODY = 20000
@@ -79,8 +79,8 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Your account is pending activation.' })
       }
     } else {
-      const t = await gasPost('auth_throttle', { key: `pub:${clientIp(req)}`, limit: 10, windowSec: 3600 })
-      if (!t.allowed) return res.status(429).json({ error: 'Too many submissions. Try again later.' })
+      const allowed = await throttle(`pub:${clientIp(req)}`, 10, 3600)
+      if (!allowed) return res.status(429).json({ error: 'Too many submissions. Try again later.' })
     }
 
     if (body.type === 'get') {
@@ -90,7 +90,9 @@ export default async function handler(req, res) {
     }
     const out = await gasPost(body.formType, rule.build(user, body))
     return res.status(out && out.status >= 400 ? out.status : 200).json(out)
-  } catch {
+  } catch (e) {
+    if (e instanceof BackendError) return backendErrorResponse(res, e)
+    console.error('[gw]', e.message)
     return res.status(502).json({ error: 'Could not reach the server.' })
   }
 }
