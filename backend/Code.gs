@@ -1047,6 +1047,10 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents)
     var type = data.formType
+    // The public landing page (lifesaverselite.com) posts LifeSaver applications straight to this URL, so 'application'
+    // is the ONE form type accepted without the server key. handlePublicApplication validates, spam-traps and rate-limits it.
+    // Everything else still requires the key.
+    if (type === 'application' && !serverKeyOk(data.serverKey)) return handlePublicApplication(data)
     if (!serverKeyOk(data.serverKey)) return respond(403, 'Forbidden')
 
     if (type === 'application')        return handleApplication(data)
@@ -1074,6 +1078,72 @@ function doPost(e) {
 // ----------------------------------------------
 // LIFESAVER APPLICATION
 // ----------------------------------------------
+// Free text: keep punctuation and line breaks, drop other control characters, cap the length.
+function cleanFree(v, max) {
+  return String(v === undefined || v === null ? '' : v).replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max)
+}
+
+// Counts one attempt against key; false once the limit for the window is reached.
+function throttleHit(key, limit, windowSec) {
+  var cache = CacheService.getScriptCache()
+  var n = parseInt(cache.get(key) || '0', 10)
+  if (n >= limit) return false
+  cache.put(key, String(n + 1), Math.min(21600, windowSec))
+  return true
+}
+
+function resumeFolder() {
+  var props = PropertiesService.getScriptProperties()
+  var id = props.getProperty('RESUME_FOLDER_ID')
+  if (id) { try { return DriveApp.getFolderById(id) } catch (e) { /* folder deleted: make a new one */ } }
+  var folder = DriveApp.createFolder('LifeSavers Elite - Resumes')   // private to the script owner
+  props.setProperty('RESUME_FOLDER_ID', folder.getId())
+  return folder
+}
+
+var RESUME_TYPES = { 'application/pdf': 1, 'application/msword': 1, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 1 }
+
+// Saves an uploaded resume to the private Drive folder and returns what goes in the sheet's Resume column.
+function saveResume(d) {
+  if (!d.resumeData) return d.resumeAttached === 'Yes' ? 'Yes (file not received)' : 'No'
+  var name = cleanText(d.resumeName, 80)
+  if (!RESUME_TYPES[d.resumeType] && !/\.(pdf|docx?)$/i.test(name)) return 'Attached, but not a PDF or Word file (not saved)'
+  try {
+    var bytes = Utilities.base64Decode(String(d.resumeData))
+    if (bytes.length > 5 * 1024 * 1024) return 'Attached, but over 5 MB (not saved)'
+    var type = RESUME_TYPES[d.resumeType] ? d.resumeType : 'application/octet-stream'
+    var file = resumeFolder().createFile(Utilities.newBlob(bytes, type, cleanText(d.name, 60) + ' - ' + (name || 'resume')))
+    return file.getUrl()
+  } catch (e) {
+    return 'Attached, but saving failed (run installTriggers once to allow Drive access)'
+  }
+}
+
+// LifeSaver application from the public landing page (no server key).
+function handlePublicApplication(d) {
+  // Spam trap: real people never see or fill the hidden "website" field. Pretend success, save nothing.
+  if (String(d.website || '').trim()) return respond(200, 'Application received')
+
+  var c = {
+    name: cleanText(d.name, 80), email: String(d.email || '').toLowerCase().trim().slice(0, 120), phone: cleanFree(d.phone, 30),
+    facebook: cleanFree(d.facebook, 200), positions: cleanFree(d.positions, 200), employment: cleanFree(d.employment, 80),
+    insurance: cleanFree(d.insurance, 80), referral: cleanFree(d.referral, 80), excites: cleanFree(d.excites, 2000)
+  }
+  if (c.name.length < 2) return respond(400, 'Please enter your full name.')
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email)) return respond(400, 'Please enter a valid email address.')
+  if (c.phone.replace(/\D/g, '').length < 7) return respond(400, 'Please enter a valid phone number.')
+
+  var lock = LockService.getScriptLock(); lock.waitLock(20000)
+  try {
+    if (!throttleHit('app:email:' + c.email, 3, 21600) || !throttleHit('app:all', 60, 3600)) {
+      return respond(429, 'We received several applications in a short time. Please try again later or email us.')
+    }
+  } finally { lock.releaseLock() }
+
+  c.resumeAttached = saveResume(d)
+  return handleApplication(c)
+}
+
 function handleApplication(d) {
   var ss    = SpreadsheetApp.openById(SPREADSHEET_ID)
   var sheet = ss.getSheetByName('LifeSaver_Applications')
@@ -1936,6 +2006,7 @@ function setupSheets() {
 //   awardSupremeMonthly (1st of the month), autoDeclineExpiredLeads (hourly), sendWeeklySummary (Sunday 7am).
 function installTriggers() {
   var report = setupSheets()
+  try { resumeFolder(); report.push('Resume folder ready in Google Drive') } catch (e) { report.push('Resume folder not created: ' + e.message) }
   var existing = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() })
   if (existing.indexOf('awardSupremeMonthly') === -1) {
     ScriptApp.newTrigger('awardSupremeMonthly').timeBased().onMonthDay(1).atHour(6).create(); report.push('Scheduled awardSupremeMonthly')
@@ -2041,21 +2112,24 @@ function wrapEmail(body) {
 }
 
 function adminAppEmailBody(d) {
+  var resume = String(d.resumeAttached || '')
   return '<h2 style="color:#C01428;">New LifeSaver Application</h2>'
-    + '<p><strong>Name:</strong> ' + d.name + '</p>'
-    + '<p><strong>Email:</strong> ' + d.email + '</p>'
-    + '<p><strong>Phone:</strong> ' + d.phone + '</p>'
-    + '<p><strong>Facebook:</strong> ' + d.facebook + '</p>'
-    + '<p><strong>Positions:</strong> ' + d.positions + '</p>'
-    + '<p><strong>Employment:</strong> ' + d.employment + '</p>'
-    + '<p><strong>Insurance Knowledge:</strong> ' + d.insurance + '</p>'
-    + '<p><strong>Referral Comfort:</strong> ' + d.referral + '</p>'
-    + '<p><strong>What Excites Them:</strong> ' + d.excites + '</p>'
+    + '<p><strong>Name:</strong> ' + escHtml(d.name) + '</p>'
+    + '<p><strong>Email:</strong> ' + escHtml(d.email) + '</p>'
+    + '<p><strong>Phone:</strong> ' + escHtml(d.phone) + '</p>'
+    + '<p><strong>Main social media:</strong> ' + escHtml(d.facebook) + '</p>'
+    + '<p><strong>Positions:</strong> ' + escHtml(d.positions) + '</p>'
+    + '<p><strong>Employment:</strong> ' + escHtml(d.employment) + '</p>'
+    + '<p><strong>Insurance Knowledge:</strong> ' + escHtml(d.insurance) + '</p>'
+    + '<p><strong>Referral Comfort:</strong> ' + escHtml(d.referral) + '</p>'
+    + '<p><strong>What Excites Them:</strong> ' + escHtml(d.excites) + '</p>'
+    + '<p><strong>Resume:</strong> ' + (resume.indexOf('https://') === 0 ? '<a href="' + escHtml(resume) + '">Open in Google Drive</a>' : escHtml(resume || 'No')) + '</p>'
 }
 
 function applicantConfirmationBody(firstName) {
-  return '<h2 style="color:#4ade80;">You are one step closer, ' + firstName + '.</h2>'
+  return '<h2 style="color:#4ade80;">You are one step closer, ' + escHtml(firstName) + '.</h2>'
     + '<p>Thank you for applying to LifeSavers Elite. Our team will review your application promptly.</p>'
+    + '<p>You can start your training now: go to <a href="https://app.lifesaverselite.com/login">app.lifesaverselite.com/login</a>, enter this email address, and we will send you a secure sign-in link.</p>'
     + '<p>Book your interview now to move to priority review.</p>'
     + '<div style="text-align:center;margin:32px 0;">'
     + '<a href="' + CAL_URL + '" style="background:#C01428;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;">Book Your Interview</a>'

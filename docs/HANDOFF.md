@@ -50,7 +50,8 @@ src/pages/dashboard/             LifeSaverDashboard, AgentDashboard, AdminDashbo
 public/                          favicon, og-image (PNG is what Facebook uses)
 vercel.json                      SPA rewrite -> /index.html
 README.md                        step-by-step setup guide (partly stale, see Section 10)
-website/                         the public marketing website (lifesaverselite.com, Cloudflare), static HTML; Login/Apply buttons point at the app
+landing/                         THE public landing page for lifesaverselite.com (new design, 2026-11-25): static, no build; deploy to Cloudflare Pages
+website/                         the previous marketing site (kept for reference; landing/ replaces it)
 docs/HANDOFF.md                  this file
 ```
 
@@ -161,7 +162,7 @@ Gotchas learned the hard way (see git history):
 
 ## 8. Security
 
-**Fixed 2026-11-21:** hardcoded admin password removed; email-only login replaced by magic link/password; Apps Script endpoints locked behind `SERVER_KEY` and an authenticated, role-checked, identity-injecting gateway; plaintext agent passwords no longer generated or stored; lead decline restricted to the assigned agent; prices/payouts/ratings computed server-side.
+**Fixed 2026-11-21:** hardcoded admin password removed; (exception added 2026-11-25: the public `application` form type, see 9B); email-only login replaced by magic link/password; Apps Script endpoints locked behind `SERVER_KEY` and an authenticated, role-checked, identity-injecting gateway; plaintext agent passwords no longer generated or stored; lead decline restricted to the assigned agent; prices/payouts/ratings computed server-side.
 
 **Still to do:**
 1. **Rotate the old admin password** wherever else it was used - it is in git history and in earlier public bundles.
@@ -281,7 +282,7 @@ Test with Stripe test card `4242 4242 4242 4242`, then check the `Transactions` 
 
 ### Domain plan (decided)
 
-- `lifesaverselite.com` (+ `www`) = the website in `website/`, hosted on Cloudflare.
+- `lifesaverselite.com` (+ `www`) = the landing page in `landing/`, hosted on Cloudflare Pages.
 - `app.lifesaverselite.com` = this app on Vercel. The website's Login, Apply and agent Enroll buttons link here.
 
 `app.lifesaverselite.com` = this React app (Vercel). The existing static site stays on `lifesaverselite.com` (Cloudflare Workers) as the marketing front. DNS lives at Cloudflare: CNAME `app` -> the target Vercel shows, **DNS only (grey cloud)**. Before moving nameservers, screenshot the existing DNS records and keep all MX/TXT records (email). The static site's Login/Apply buttons must link to `https://app.lifesaverselite.com/login` and `/apply` (that site's source is not in this repo).
@@ -323,6 +324,15 @@ Owed to a LifeSaver = `LIFESAVER_PAYOUT` + `LEVEL_BONUS` rows earned up to a cut
 - The Admin "override star rating" action works again, but only through the authenticated admin gateway.
 - **Agent Agreement text still says "$2.00 per accepted lead"** (`AgentEnroll.jsx`, three places) and the Agent Settings "top up balance" screen predates the per-lead cart. These are contract/pricing terms: the owner must supply the final wording before real money is charged.
 - The payout recorded for a lead is `max(0, lead price - Stripe fee)`; on a $5 (2-star) lead the LifeSaver nets about $4.41.
+
+## 9B. Landing page (lifesaverselite.com)
+
+`landing/index.html` is one self-contained page (new design) plus `privacy.html`, `terms.html`, `contact.html`, `agents.html`, `assets/` and `og-image.png` (1200x630 share image). No build step. It is separate from the Vercel app; nothing in `landing/` is used by the Vite build.
+
+- **Menu:** Login goes to `https://app.lifesaverselite.com/login`. Agents & Brokers scrolls to the `#agents` section, which links to agent enrollment and agent login in the app. Footer links go to the static pages.
+- **Application form:** posts straight to the Apps Script web app URL set in `FORM_ENDPOINT` near the bottom of `landing/index.html` (text/plain, so no CORS preflight). Fields: name, email, phone, facebook (main social media), positions, employment, insurance, referral (comfort level), excites, resumeAttached, website (spam trap), plus the resume file as base64.
+- **Backend:** `application` is the **only** form type Apps Script accepts without `SERVER_KEY` (`handlePublicApplication`): the hidden `website` field is a spam trap (silently ignored), name/email/phone are validated, lengths capped, max 3 applications per email per 6 hours and 60 per hour overall, text is HTML-escaped in emails, and resumes (PDF/Word, max 5 MB) are saved to a private Google Drive folder "LifeSavers Elite - Resumes" with the link in the sheet's Resume column. Run `installTriggers` once after updating `Code.gs` so the script gets Drive access.
+- **Cloudflare Pages settings:** Framework preset **None**, Build command **(leave empty; if the form insists, enter `exit 0`)**, Build output directory **`landing`**, Root directory **(leave empty)**, Production branch **`main`**. Then add custom domains `lifesaverselite.com` and `www.lifesaverselite.com` to the Pages project (and remove them from the old Workers site if they were attached there).
 
 ## 10. Known Doc Drift (README.md)
 
