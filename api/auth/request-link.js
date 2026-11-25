@@ -1,7 +1,7 @@
 // POST { email } -> emails a single-use sign-in link. Always answers the same, so it never reveals which emails have accounts.
 import crypto from 'node:crypto'
 import { sign, sameOrigin, clientIp } from '../_lib/session.js'
-import { gasPost, lookupUser } from '../_lib/gas.js'
+import { gasPost, lookupUser, throttle, BackendError, backendErrorResponse } from '../_lib/gas.js'
 
 const EMAIL = /^[^@\s]{1,100}@[^@\s]{1,100}\.[^@\s]{1,20}$/
 
@@ -13,10 +13,10 @@ export default async function handler(req, res) {
 
   try {
     const [byEmail, byIp] = await Promise.all([
-      gasPost('auth_throttle', { key: `link:${email}`, limit: 5, windowSec: 3600 }),
-      gasPost('auth_throttle', { key: `linkip:${clientIp(req)}`, limit: 20, windowSec: 3600 }),
+      throttle(`link:${email}`, 5, 3600),
+      throttle(`linkip:${clientIp(req)}`, 20, 3600),
     ])
-    if (!byEmail.allowed || !byIp.allowed) return res.status(429).json({ error: 'Too many requests. Try again later.' })
+    if (!byEmail || !byIp) return res.status(429).json({ error: 'Too many requests. Try again later.' })
 
     const user = await lookupUser(email)
     if (user) {
@@ -24,7 +24,9 @@ export default async function handler(req, res) {
       const token = sign({ typ: 'magic', email, jti: crypto.randomUUID(), exp: Math.floor(Date.now() / 1000) + 15 * 60 }, process.env.SESSION_SECRET)
       await gasPost('send_magic_link', { email, link: `${site}/auth/verify?token=${encodeURIComponent(token)}` })
     }
-  } catch {
+  } catch (e) {
+    if (e instanceof BackendError) return backendErrorResponse(res, e)
+    console.error('[request-link]', e.message)
     return res.status(502).json({ error: 'Could not send the link. Try again.' })
   }
   return res.json({ ok: true })
